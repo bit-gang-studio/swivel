@@ -42,7 +42,8 @@ function within<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
   return Promise.race([promise.catch(() => fallback), new Promise<T>((r) => setTimeout(() => r(fallback), ms))])
 }
 
-const INPUT_TIMEOUT = 1000
+// Long enough for a slow engine right after a page load, short enough that a stuck call can't freeze input.
+const INPUT_TIMEOUT = 5000
 const message = (err: unknown) => (err instanceof Error ? err.message.split('\n')[0] : String(err))
 // Errors from a navigation that a newer one replaced. Not worth showing.
 const superseded = (err: unknown) => /interrupted by another navigation|NS_BINDING_ABORTED|Navigation.*aborted|frame was detached|Target.*closed|has been closed/i.test(message(err))
