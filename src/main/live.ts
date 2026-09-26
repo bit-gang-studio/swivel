@@ -196,7 +196,8 @@ export class LiveSession {
       this.cursorTimer = undefined
       const page = this.page
       if (!page) return
-      const cursor = await within(page.evaluate(pickCursor, this.mouseAt), 300, this.lastCursor)
+      const cursor = await within(page.evaluate(pickCursor, this.mouseAt), 1000, null)
+      if (cursor === null) return this.probeCursor() // Page busy; try again.
       if (cursor !== this.lastCursor) {
         this.lastCursor = cursor
         this.emit('cursor', cursor)

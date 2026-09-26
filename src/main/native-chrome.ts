@@ -66,7 +66,15 @@ export class NativeChrome {
     return view
   }
 
-  async start(opts: LiveOptions): Promise<void> {
+  /** The latest start(). Navigation waits for it, so a startup load can't replace a typed URL. */
+  private starting: Promise<void> = Promise.resolve()
+
+  start(opts: LiveOptions): Promise<void> {
+    this.starting = this.open(opts)
+    return this.starting
+  }
+
+  private async open(opts: LiveOptions): Promise<void> {
     const sameUrl = this.opts?.url === opts.url
     this.opts = opts
     const view = (this.view ??= this.create())
@@ -83,12 +91,13 @@ export class NativeChrome {
 
   async navigate(url: string): Promise<void> {
     if (!this.opts) return
+    await this.starting
     this.opts = { ...this.opts, url }
-    await this.blank
     this.load(url)
   }
 
   async history(action: 'back' | 'forward' | 'reload'): Promise<void> {
+    await this.starting
     const wc = this.view?.webContents
     if (!wc) return
     if (action === 'back') wc.navigationHistory.goBack()
