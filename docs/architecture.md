@@ -17,9 +17,9 @@ Each window has an `EngineHost` (`src/main/host.ts`) that routes to one of three
 
 | Engine | macOS | Windows, Linux | How |
 |---|---|---|---|
-| Blink (Chrome) | Native | Native | Electron's own Chromium in a `WebContentsView` (`native-chrome.ts`) |
-| WebKit (Safari) | Native | Streamed | Apple's WKWebView via an N-API addon in `native/webkit-view` (`native-safari.ts`) |
-| Gecko (Firefox) | Streamed | Streamed | Playwright, frames drawn on a canvas (`live.ts`, `frames.ts`) |
+| Chromium | Native | Native | Electron's own Chromium in a `WebContentsView` (`native-chrome.ts`) |
+| WebKit | Native | Streamed | Apple's WKWebView via an N-API addon in `native/webkit-view` (`native-safari.ts`) |
+| Firefox | Streamed | Streamed | Playwright, frames drawn on a canvas (`live.ts`, `frames.ts`) |
 
 **Native** views are laid over the page area, so they are real-time, like a normal browser. The page lays out at the viewport width and is scaled to fit:
 
@@ -44,7 +44,7 @@ Browsers are not bundled yet. In development they come from `npm run browsers`. 
 
 ## Naming engines
 
-The UI names engines, not browsers: Blink, Gecko, WebKit. Tooltips say which browsers use each. See `src/renderer/src/engines.ts`.
+The UI names engines Chromium, Firefox and WebKit, as Playwright does. Tooltips say which browsers use each. See `src/renderer/src/engines.ts`.
 
 ## Releases
 

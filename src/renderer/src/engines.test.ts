@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { engineHint, engineLabel } from './engines'
 
 describe('engine names', () => {
-  it('uses engine names, not browser names', () => {
-    expect(engineLabel('chromium')).toBe('Blink')
-    expect(engineLabel('firefox')).toBe('Gecko')
+  it('uses Playwright-style engine names', () => {
+    expect(engineLabel('chromium')).toBe('Chromium')
+    expect(engineLabel('firefox')).toBe('Firefox')
     expect(engineLabel('webkit')).toBe('WebKit')
   })
 

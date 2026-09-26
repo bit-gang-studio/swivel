@@ -49,7 +49,7 @@ await withApp(async ({ app, win }) => {
   await win.getByLabel('Address').press('Enter')
 
   const results = []
-  for (const name of [/^Blink$/, /^Gecko$/, /^WebKit$/]) {
+  for (const name of [/^Chromium$/, /^Firefox$/, /^WebKit$/]) {
     const button = win.getByRole('group', { name: 'Browser engine' }).getByRole('button', { name })
     const tag = await button.innerText()
     await button.click()
@@ -79,13 +79,13 @@ await withApp(async ({ app, win }) => {
       typed = await seen(tag, 'typed')
       await run('window.scrollBy(0, 600)')
       scrolled = await seen(tag, 'scrolled')
-    } else if (tag === 'Blink') {
+    } else if (tag === 'Chromium') {
       // Chrome is a native view: real input goes straight to it, so inject input through
       // Electron and check its console reaches Swivel.
       const width = await app.evaluate(({ BrowserWindow }) =>
         BrowserWindow.getAllWindows()[0].contentView.children[0].webContents.executeJavaScript('innerWidth')
       )
-      if (width !== 1280) console.log(`Blink innerWidth is ${width}, expected 1280`)
+      if (width !== 1280) console.log(`Chromium innerWidth is ${width}, expected 1280`)
       // Inject input the way the OS does, through Electron, in view coordinates.
       const send = (events) =>
         app.evaluate(async ({ BrowserWindow }, events) => {

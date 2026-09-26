@@ -1,16 +1,16 @@
 import type { EngineId, Viewport } from '../../shared/types'
 
-const NAMES: Record<EngineId, string> = { chromium: 'Blink', firefox: 'Gecko', webkit: 'WebKit' }
+const NAMES: Record<EngineId, string> = { chromium: 'Chromium', firefox: 'Firefox', webkit: 'WebKit' }
 
-/** Engines are named for themselves, not a browser: Blink, Gecko, WebKit. */
+/** Engine names, as Playwright and dev tools use them: Chromium, Firefox, WebKit. */
 export function engineLabel(engine: EngineId): string {
   return NAMES[engine]
 }
 
 /** Tooltip: which browsers use the engine, and how Swivel runs it here. */
 export function engineHint(engine: EngineId, platform: string): string {
-  if (engine === 'chromium') return 'Blink: the engine in Chrome, Edge and Opera'
-  if (engine === 'firefox') return 'Gecko: the engine in Firefox'
+  if (engine === 'chromium') return 'Chromium: the engine behind Chrome, Edge and Opera'
+  if (engine === 'firefox') return 'Firefox (Gecko engine)'
   return platform === 'darwin' ? 'WebKit: the engine in Safari (this is real Safari WebKit)' : 'WebKit: the engine in Safari (Playwright build)'
 }
 

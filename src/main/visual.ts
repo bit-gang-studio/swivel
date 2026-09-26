@@ -49,7 +49,7 @@ export async function visualCheck(win: BrowserWindow, dir: string): Promise<void
   await shot('default-resized')
   win.setBounds({ x: 0, y: 0, width: 1400, height: 900 })
   await sleep(2000)
-  for (const [engine, label] of [['blink', 'Blink'], ['gecko', 'Gecko'], ['webkit', 'WebKit']]) {
+  for (const [engine, label] of [['chromium', 'Chromium'], ['firefox', 'Firefox'], ['webkit', 'WebKit']]) {
     await click(label)
     for (const [value, name] of [['fill', 'fill'], ['2', 'desktop'], ['0', 'phone']] as const) {
       await size(value)
