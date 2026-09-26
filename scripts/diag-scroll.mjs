@@ -1,12 +1,11 @@
 // Trackpad scroll lag and real-site loading per engine. Run after npm run build. SHOTS=dir saves screenshots.
-import { _electron as electron } from 'playwright'
+import { launchApp } from './app-window.mjs'
 
 const PAGE = 'data:text/html,' + encodeURIComponent(`<body style="margin:0;height:20000px;background:linear-gradient(#fff,#000 5000px,#fff 10000px,#000 15000px,#fff)">
 <script>console.log('ready');addEventListener('scroll',()=>{ window.last=performance.now() })</script></body>`)
 const SITES = (process.env.SITES ?? 'https://github.com,https://www.apple.com,https://developer.mozilla.org/en-US/,https://news.ycombinator.com,https://www.wikipedia.org').split(',')
 
-const app = await electron.launch({ args: ['.'] })
-const win = await app.firstWindow()
+const { app, win, done } = await launchApp()
 await win.waitForSelector('canvas.live')
 const addr = win.getByLabel('Address')
 async function go(url) { await addr.fill(url); await addr.press('Enter') }
@@ -56,6 +55,6 @@ for (const name of [/^Chrome$/, /^Firefox$/, /^(Safari|WebKit)$/]) {
   rows.push(row)
 }
 const status = await win.locator('.status').allInnerTexts()
-await app.close()
+await done()
 console.table(rows)
 console.log('last status:', status)

@@ -1,12 +1,11 @@
 // Measures input lag in the built app: stream mouse moves like a user, then click. Run after npm run build.
 // and time until the canvas shows the page's reaction.
-import { _electron as electron } from 'playwright'
+import { launchApp } from './app-window.mjs'
 
 const PAGE = 'data:text/html,' + encodeURIComponent(`<style>html,body{margin:0;height:100%;background:#fff}</style>
 <script>console.log('ready');let on=false;document.addEventListener('mousedown',()=>{on=!on;document.body.style.background=on?'#000':'#fff'})</script>`)
 
-const app = await electron.launch({ args: ['.'] })
-const win = await app.firstWindow()
+const { app, win, done } = await launchApp()
 await win.waitForSelector('canvas.live')
 await win.getByLabel('Address').fill(PAGE)
 await win.getByLabel('Address').press('Enter')
@@ -53,5 +52,5 @@ for (const name of [/^Chrome$/, /^Firefox$/, /^(Safari|WebKit)$/]) {
   }
   rows.push({ engine: tag, lagsMs: lags.join(', ') })
 }
-await app.close()
+await done()
 console.table(rows)

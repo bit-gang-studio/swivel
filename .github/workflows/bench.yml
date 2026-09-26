@@ -1,6 +1,12 @@
 name: Live view check
 
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+    inputs:
+      bench:
+        description: Run the frame rate benchmark too
+        type: boolean
+        default: true
 
 jobs:
   live:
@@ -17,18 +23,16 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium firefox webkit
-      - run: node --experimental-strip-types --no-warnings scripts/bench-live.mjs
-      - run: node --experimental-strip-types --no-warnings scripts/bench-live.mjs
+      - if: inputs.bench
+        run: node --experimental-strip-types --no-warnings scripts/bench-live.mjs
+      - if: inputs.bench
+        run: node --experimental-strip-types --no-warnings scripts/bench-live.mjs
         env:
           SIZE: 390x844
       - run: npm run build
       - name: App test (Linux)
         if: runner.os == 'Linux'
         run: xvfb-run -a node scripts/e2e-live.mjs
-        env:
-          DEBUG_APP: 1
       - name: App test
         if: runner.os != 'Linux'
         run: node scripts/e2e-live.mjs
-        env:
-          DEBUG_APP: 1

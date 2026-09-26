@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import type { ConsoleEntry, EngineId } from '../../shared/types'
 import { ENGINES, SIZES, engineLabel } from './engines'
 import { LiveView } from './LiveView'
+import { NativeView } from './NativeView'
 
 const platform = window.swivel.platform
 
@@ -102,7 +103,11 @@ export function App() {
 
       <main className="viewport">
         {error && <p className="status error">{error}</p>}
-        <LiveView viewport={viewport} engine={engine} label={engineLabel(engine, platform)} />
+        {engine === 'chromium' ? (
+          <NativeView viewport={viewport} />
+        ) : (
+          <LiveView viewport={viewport} engine={engine} label={engineLabel(engine, platform)} />
+        )}
       </main>
 
       <section className="console" aria-label="Console">

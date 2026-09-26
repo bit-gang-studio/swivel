@@ -39,3 +39,11 @@ export interface LiveEvents {
   error: string
   loading: boolean
 }
+
+/** The page area's position in the window, in CSS pixels of the app window. */
+export interface ViewRect {
+  x: number
+  y: number
+  width: number
+  height: number
+}
