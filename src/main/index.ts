@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { LiveSession, closeAllBrowsers } from './live'
+import { LiveSession, closeAllBrowsers, prewarmBrowsers } from './live'
 import type { InputEvent, LiveOptions } from '../shared/types'
 
 const here = fileURLToPath(new URL('.', import.meta.url))
@@ -52,6 +52,7 @@ ipcMain.on('swivel:input', (e, input: InputEvent) => void sessions.get(e.sender.
 
 app.whenReady().then(() => {
   createWindow()
+  prewarmBrowsers()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })

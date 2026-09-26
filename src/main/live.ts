@@ -15,6 +15,20 @@ function getBrowser(engine: EngineId): Promise<Browser> {
   return browser
 }
 
+/** Start every engine in the background so the first switch is fast and warmed up. */
+export function prewarmBrowsers(): void {
+  for (const engine of Object.keys(types) as EngineId[]) {
+    void getBrowser(engine)
+      .then(async (browser) => {
+        const page = await browser.newPage()
+        const end = Date.now() + 3000
+        while (Date.now() < end) await page.screenshot({ type: 'jpeg', quality: 80 })
+        await page.close()
+      })
+      .catch(() => {})
+  }
+}
+
 export async function closeAllBrowsers(): Promise<void> {
   const all = await Promise.allSettled(browsers.values())
   browsers.clear()

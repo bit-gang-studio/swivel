@@ -18,8 +18,11 @@ async function bench(name, type) {
   const page = await browser.newPage({ viewport: { width: W, height: H } })
   const size = { width: W, height: H }
 
-  // 1. Frames per second on a page that animates every frame.
+  // Engines are slow for their first few seconds (the app prewarms them), so warm up first.
   await page.setContent(ANIM)
+  for (const end = Date.now() + 3000; Date.now() < end; ) await page.screenshot({ type: 'jpeg', quality: 80 })
+
+  // 1. Frames per second on a page that animates every frame.
   let frames = 0
   let src = new FrameSource(page, name, size, () => frames++)
   await src.start()
