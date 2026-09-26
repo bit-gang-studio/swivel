@@ -58,5 +58,20 @@ export async function visualCheck(win: BrowserWindow, dir: string): Promise<void
     }
     await size('fill')
   }
+  // Find bar, in each engine.
+  win.webContents.send('swivel:command', 'find')
+  await sleep(500)
+  await ui(`(() => {
+    const input = document.querySelector('.findbar input')
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'Piastri')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })()`)
+  for (const [engine, label] of [['chromium', 'Chromium'], ['firefox', 'Firefox'], ['webkit', 'WebKit']]) {
+    await click(label)
+    await sleep(5000)
+    await ui(`document.querySelector('.findbar input').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))`)
+    await sleep(1500)
+    await shot(`${engine}-find`)
+  }
   app.exit(0)
 }
