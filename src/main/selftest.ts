@@ -12,9 +12,12 @@ export async function selfTest(win: BrowserWindow, host: EngineHost): Promise<vo
     app.exit(ok ? 0 : 1)
   }
   setTimeout(() => done(false, 'timed out'), 30_000)
+  const step = (m: string) => console.log(`SELFTEST step ${m}`)
   await host.setRect({ x: 0, y: 100, width: 640, height: 400 })
+  step('rect set')
   host.onConsole = (text) => {
     if (text.startsWith('dark:')) done(text === 'dark:true width:1280', text)
   }
   await host.start({ engine: 'chromium', url: page, viewport: { width: 1280, height: 800 }, colorScheme: 'dark' })
+  step('started')
 }

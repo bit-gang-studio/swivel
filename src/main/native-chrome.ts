@@ -8,7 +8,7 @@ const LEVELS = { debug: 'debug', info: 'log', warning: 'warning', error: 'error'
 /**
  * Chrome shown natively: Electron's own Chromium in a view laid over the page area.
  * No streaming, so it is as fast as a real browser. Viewport size, scaling and dark
- * mode use Electron's device emulation and, for dark mode, the DevTools protocol.
+ * mode use the DevTools protocol (Electron's device emulation under test runners).
  */
 export class NativeChrome {
   private view?: WebContentsView
@@ -62,7 +62,9 @@ export class NativeChrome {
     const sameUrl = this.opts?.url === opts.url
     this.opts = opts
     await this.blank
+    if (process.env.SWIVEL_SELFTEST) console.log('SELFTEST step blank committed')
     await this.applyEmulation()
+    if (process.env.SWIVEL_SELFTEST) console.log('SELFTEST step emulation applied')
     view.setVisible(!!this.rect)
     if (!sameUrl || view.webContents.getURL() === 'about:blank') this.load(opts.url)
   }
@@ -104,27 +106,32 @@ export class NativeChrome {
     if (!wc || !this.opts || !this.committed || wc.isDestroyed()) return
     const { viewport, colorScheme } = this.opts
     const scale = this.rect ? this.rect.width / viewport.width : 1
-    wc.enableDeviceEmulation({
-      screenPosition: viewport.width < 600 ? 'mobile' : 'desktop',
-      screenSize: viewport,
-      viewPosition: { x: 0, y: 0 },
-      deviceScaleFactor: 0,
-      viewSize: viewport,
-      scale
-    })
-    // The debugger is only used for dark mode. Attach it late, after a page commits, and never
-    // while a test runner is connected over remote debugging (that combination crashes Electron).
+    const mobile = viewport.width < 600
+
+    // Prefer the DevTools protocol: its overrides survive navigations, so pages never see the
+    // wrong size or colour scheme, even for a moment. Attaching it while a test runner is
+    // connected over remote debugging crashes Electron, so tests use Electron's emulation.
     if (!wc.debugger.isAttached() && !app.commandLine.hasSwitch('remote-debugging-port')) {
       try {
         wc.debugger.attach('1.3')
       } catch {
-        // Attached elsewhere; skip dark mode emulation.
+        // Attached elsewhere.
       }
     }
     if (wc.debugger.isAttached()) {
-      await wc.debugger
-        .sendCommand('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: colorScheme }] })
-        .catch(() => {})
+      const send = (method: string, params: object) =>
+        Promise.race([wc.debugger.sendCommand(method, params).catch(() => {}), new Promise((r) => setTimeout(r, 1000))])
+      await send('Emulation.setDeviceMetricsOverride', { width: viewport.width, height: viewport.height, deviceScaleFactor: 0, mobile, scale })
+      await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: colorScheme }] })
+    } else {
+      wc.enableDeviceEmulation({
+        screenPosition: mobile ? 'mobile' : 'desktop',
+        screenSize: viewport,
+        viewPosition: { x: 0, y: 0 },
+        deviceScaleFactor: 0,
+        viewSize: viewport,
+        scale
+      })
     }
   }
 
