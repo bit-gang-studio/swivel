@@ -31,8 +31,10 @@ jobs:
           SIZE: 390x844
       - run: npm run build
       - name: App test (Linux)
+        timeout-minutes: 8
         if: runner.os == 'Linux'
         run: xvfb-run -a node scripts/e2e-live.mjs
       - name: App test
+        timeout-minutes: 8
         if: runner.os != 'Linux'
         run: node scripts/e2e-live.mjs

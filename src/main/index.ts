@@ -15,8 +15,10 @@ function createWindow(): void {
     minWidth: 900,
     minHeight: 600,
     title: 'Swivel',
-    // Test runs keep the window hidden so they don't pop up on the desktop.
+    // Test runs use an invisible window that never takes focus, so they don't disturb the desktop.
+    // It must still be shown: hidden windows don't deliver input to native views.
     show: !process.env.SWIVEL_HIDDEN,
+    ...(process.env.SWIVEL_HIDDEN ? { opacity: 0, focusable: false, skipTaskbar: true } : {}),
     webPreferences: {
       backgroundThrottling: !process.env.SWIVEL_HIDDEN,
       preload: join(here, '../preload/index.mjs'),
@@ -25,6 +27,7 @@ function createWindow(): void {
     }
   })
 
+  if (process.env.SWIVEL_HIDDEN) win.showInactive()
   const id = win.webContents.id
   sessions.set(
     id,
