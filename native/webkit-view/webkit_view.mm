@@ -134,7 +134,7 @@ static Napi::Value SetFrame(const Napi::CallbackInfo& info) {
   if (!v) return info.Env().Undefined();
   double x = info[1].As<Napi::Number>().DoubleValue(), y = info[2].As<Napi::Number>().DoubleValue();
   double w = info[3].As<Napi::Number>().DoubleValue(), h = info[4].As<Napi::Number>().DoubleValue();
-  double vw = info[5].As<Napi::Number>().DoubleValue(), vh = info[6].As<Napi::Number>().DoubleValue();
+  double vw = info[5].As<Napi::Number>().DoubleValue();  // Viewport height follows from the zoom.
   NSView* parent = v.container.superview;
   double top = parent.isFlipped ? y : parent.bounds.size.height - y - h;
   v.container.frame = NSMakeRect(x, top, w, h);
