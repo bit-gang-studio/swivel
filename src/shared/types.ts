@@ -10,6 +10,8 @@ export interface LiveOptions {
   url: string
   viewport: Viewport
   colorScheme: 'light' | 'dark'
+  /** Screen pixel density, so streamed frames are sharp on Retina and HiDPI screens. */
+  pixelRatio?: number
 }
 
 export interface ConsoleEntry {

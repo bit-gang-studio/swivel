@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import type { ConsoleEntry, EngineId, Viewport } from '../../shared/types'
-import { ENGINES, SIZES, engineLabel } from './engines'
+import { ENGINES, SIZES, engineHint, engineLabel } from './engines'
 import { LiveView } from './LiveView'
 import { NativeView } from './NativeView'
 
@@ -95,7 +95,7 @@ export function App() {
   useEffect(() => {
     if (!viewport) return
     setError(null)
-    void window.swivel.start({ engine, url, viewport, colorScheme: dark ? 'dark' : 'light' })
+    void window.swivel.start({ engine, url, viewport, colorScheme: dark ? 'dark' : 'light', pixelRatio: window.devicePixelRatio })
     // url is left out on purpose: navigation inside the page must not restart it. Window
     // resizes in "Fill window" resize the page instead (below).
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -154,8 +154,8 @@ export function App() {
         </label>
         <div className="segmented" role="group" aria-label="Browser engine">
           {ENGINES.map((id) => (
-            <button key={id} type="button" aria-pressed={engine === id} onClick={() => setEngine(id)}>
-              {engineLabel(id, platform)}
+            <button key={id} type="button" aria-pressed={engine === id} title={engineHint(id, platform)} onClick={() => setEngine(id)}>
+              {engineLabel(id)}
             </button>
           ))}
         </div>
@@ -186,7 +186,7 @@ export function App() {
           (window.swivel.nativeEngines.includes(engine) ? (
             <NativeView viewport={viewport} engine={engine} />
           ) : (
-            <LiveView viewport={viewport} engine={engine} label={engineLabel(engine, platform)} />
+            <LiveView viewport={viewport} engine={engine} label={engineLabel(engine)} />
           ))}
       </main>
 
@@ -197,7 +197,7 @@ export function App() {
             <ul>
               {logs.map((entry, i) => (
                 <li key={i} className={entry.type}>
-                  <span className="tag">{engineLabel(entry.engine, platform)}</span> {entry.text}
+                  <span className="tag">{engineLabel(entry.engine)}</span> {entry.text}
                 </li>
               ))}
             </ul>

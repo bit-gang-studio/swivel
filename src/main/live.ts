@@ -91,7 +91,11 @@ export class LiveSession {
     try {
       const browser = await getBrowser(opts.engine)
       if (gen !== this.generation) return
-      const context = await browser.newContext({ viewport: opts.viewport, colorScheme: opts.colorScheme })
+      const context = await browser.newContext({
+        viewport: opts.viewport,
+        colorScheme: opts.colorScheme,
+        deviceScaleFactor: Math.min(3, Math.max(1, opts.pixelRatio ?? 1))
+      })
       if (gen !== this.generation) return void context.close().catch(() => {})
       const page = await context.newPage()
       this.context = context

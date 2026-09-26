@@ -17,9 +17,9 @@ Each window has an `EngineHost` (`src/main/host.ts`) that routes to one of three
 
 | Engine | macOS | Windows, Linux | How |
 |---|---|---|---|
-| Chrome | Native | Native | Electron's own Chromium in a `WebContentsView` (`native-chrome.ts`) |
-| Safari / WebKit | Native | Streamed | Apple's WKWebView via an N-API addon in `native/webkit-view` (`native-safari.ts`) |
-| Firefox | Streamed | Streamed | Playwright, frames drawn on a canvas (`live.ts`, `frames.ts`) |
+| Blink (Chrome) | Native | Native | Electron's own Chromium in a `WebContentsView` (`native-chrome.ts`) |
+| WebKit (Safari) | Native | Streamed | Apple's WKWebView via an N-API addon in `native/webkit-view` (`native-safari.ts`) |
+| Gecko (Firefox) | Streamed | Streamed | Playwright, frames drawn on a canvas (`live.ts`, `frames.ts`) |
 
 **Native** views are laid over the page area, so they are real-time, like a normal browser. The page lays out at the viewport width and is scaled to fit:
 
@@ -28,7 +28,7 @@ Each window has an `EngineHost` (`src/main/host.ts`) that routes to one of three
 
 A DevTools size override draws at full size outside the view, so it isn't used either.
 
-**Streamed** engines run headless in Playwright. Chromium-style screencast caps Firefox and WebKit near 25 fps, so they poll screenshots at up to 60 fps, drop duplicates, and slow down when idle. Input is replayed in order, with moves and wheel events coalesced. No browser call can block navigation or input. All engines prewarm at launch.
+**Streamed** engines run headless in Playwright at the screen's pixel density, so they're sharp on Retina screens. Chromium-style screencast caps Firefox and WebKit near 25 fps, so they poll screenshots at up to 60 fps, drop duplicates, and slow down when idle. Input is replayed in order, with moves and wheel events coalesced. No browser call can block navigation or input. All engines prewarm at launch.
 
 No embeddable Firefox exists for desktop, so it stays streamed.
 
@@ -44,7 +44,7 @@ Browsers are not bundled yet. In development they come from `npm run browsers`. 
 
 ## Naming engines
 
-WebKit is shown as "Safari" only on macOS. On Windows and Linux it is shown as "WebKit". See `engineLabel` in `src/renderer/src/engines.ts`.
+The UI names engines, not browsers: Blink, Gecko, WebKit. Tooltips say which browsers use each. See `src/renderer/src/engines.ts`.
 
 ## Releases
 

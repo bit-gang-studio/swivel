@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { engineLabel } from './engines'
+import { engineHint, engineLabel } from './engines'
 
-describe('engineLabel', () => {
-  it('calls WebKit "Safari" only on macOS', () => {
-    expect(engineLabel('webkit', 'darwin')).toBe('Safari')
-    expect(engineLabel('webkit', 'win32')).toBe('WebKit')
-    expect(engineLabel('webkit', 'linux')).toBe('WebKit')
+describe('engine names', () => {
+  it('uses engine names, not browser names', () => {
+    expect(engineLabel('chromium')).toBe('Blink')
+    expect(engineLabel('firefox')).toBe('Gecko')
+    expect(engineLabel('webkit')).toBe('WebKit')
   })
 
-  it('names Chrome and Firefox the same everywhere', () => {
-    expect(engineLabel('chromium', 'linux')).toBe('Chrome')
-    expect(engineLabel('firefox', 'win32')).toBe('Firefox')
+  it('only claims real Safari WebKit on macOS', () => {
+    expect(engineHint('webkit', 'darwin')).toContain('real Safari')
+    expect(engineHint('webkit', 'linux')).toContain('Playwright')
   })
 })

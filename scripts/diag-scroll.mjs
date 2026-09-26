@@ -32,7 +32,7 @@ await withApp(async ({ app, win }) => {
   })
 
   const rows = []
-  for (const name of [/^Chrome$/, /^Firefox$/, /^(Safari|WebKit)$/]) {
+  for (const name of [/^Blink$/, /^Gecko$/, /^WebKit$/]) {
     const button = win.getByRole('group', { name: 'Browser engine' }).getByRole('button', { name })
     const tag = await button.innerText()
     await button.click()

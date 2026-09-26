@@ -23,7 +23,7 @@ Swivel feels like a normal browser, but the engine is a switch. Load a page once
 
 Swivel runs on macOS, Windows and Linux.
 
-On macOS the WebKit engine is labelled **Safari**. On Windows and Linux it is labelled **WebKit**, because it is Playwright's WebKit build rather than real Safari.
+Engines are named Blink (Chrome), Gecko (Firefox) and WebKit (Safari). On macOS, WebKit is Apple's real Safari engine. On Windows and Linux it's Playwright's WebKit build.
 
 ## Develop
 

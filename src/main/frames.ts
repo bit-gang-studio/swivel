@@ -78,7 +78,7 @@ export class FrameSource {
     while (!this.stopped) {
       const started = performance.now()
       try {
-        const data = await this.page.screenshot({ type: 'jpeg', quality: 80, scale: 'css', animations: 'allow', caret: 'initial', timeout: 1500 })
+        const data = await this.page.screenshot({ type: 'jpeg', quality: 80, scale: 'device', animations: 'allow', caret: 'initial', timeout: 1500 })
         const hash = createHash('md5').update(data).digest('hex')
         if (hash !== last) {
           last = hash
