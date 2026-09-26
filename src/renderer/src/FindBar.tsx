@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
 /** Find in page. Enter: next, Shift+Enter: previous, Esc: close. */
-export function FindBar({ onClose, focusToken }: { onClose: () => void; focusToken: number }) {
+export function FindBar({ onClose, focusToken, engine }: { onClose: () => void; focusToken: number; engine: string }) {
   const input = useRef<HTMLInputElement>(null)
   const [text, setText] = useState('')
   const [result, setResult] = useState({ matches: 0, active: 0 })
@@ -12,11 +12,11 @@ export function FindBar({ onClose, focusToken }: { onClose: () => void; focusTok
     input.current?.select()
   }, [focusToken])
 
-  // Search as you type.
+  // Search as you type, and again in a newly chosen engine once its page is up.
   useEffect(() => {
     const t = setTimeout(() => void window.swivel.find({ text, backwards: false, restart: true }), 120)
     return () => clearTimeout(t)
-  }, [text])
+  }, [text, engine])
 
   // Clear highlights when the bar closes.
   useEffect(() => () => void window.swivel.find({ text: '', backwards: false, restart: true }), [])

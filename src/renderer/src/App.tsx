@@ -205,7 +205,7 @@ export function App() {
         <div className={loading ? 'progress on' : 'progress'} role="progressbar" aria-label="Page loading" aria-busy={loading} />
       </form>
 
-      {findOpen && <FindBar focusToken={findFocus} onClose={() => setFindOpen(false)} />}
+      {findOpen && <FindBar focusToken={findFocus} engine={engine} onClose={() => setFindOpen(false)} />}
 
       <main ref={areaRef} className={size === 'fill' ? 'viewport fill' : 'viewport'}>
         {error && <p className="status error">{error}</p>}
