@@ -8,10 +8,17 @@ import { nativeEngines, type EngineHost } from './host'
  * Prints the result and quits.
  */
 export async function selfTest(win: BrowserWindow, host: EngineHost): Promise<void> {
-  const page = 'data:text/html,' + encodeURIComponent("<script>console.log('dark:' + matchMedia('(prefers-color-scheme: dark)').matches + ' width:' + innerWidth)</script>")
+  // Reports the width twice: while the page first parses, and after it loads. Only the loaded
+  // layout must be right. Chrome on Windows can briefly show a site's first visit at the old zoom.
+  const page =
+    'data:text/html,' +
+    encodeURIComponent(
+      "<script>const early = innerWidth; addEventListener('load', () => setTimeout(() => console.log('dark:' + matchMedia('(prefers-color-scheme: dark)').matches + ' width:' + innerWidth + ' early:' + early), 300))</script>"
+    )
   const results: string[] = []
   const finish = () => {
-    const ok = results.every((r) => r.endsWith('dark:true width:1280'))
+    const ok = results.every((r) => r.includes('dark:true width:1280 '))
+    for (const r of results) if (ok && !r.endsWith('early:1280')) console.log(`SELFTEST note: brief first-visit reflow (${r})`)
     console.log(`SELFTEST ${ok ? 'PASS' : 'FAIL'} ${results.join(' | ')}`)
     app.exit(ok ? 0 : 1)
   }
