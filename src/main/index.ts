@@ -1,10 +1,11 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { capture, closeAll } from './engines'
-import type { CaptureRequest } from '../shared/types'
+import { LiveSession, closeAllBrowsers } from './live'
+import type { InputEvent, LiveOptions } from '../shared/types'
 
 const here = fileURLToPath(new URL('.', import.meta.url))
+const sessions = new Map<number, LiveSession>()
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -20,6 +21,18 @@ function createWindow(): void {
     }
   })
 
+  const id = win.webContents.id
+  sessions.set(
+    id,
+    new LiveSession((event, payload) => {
+      if (!win.isDestroyed()) win.webContents.send(`swivel:${event}`, payload)
+    })
+  )
+  win.on('closed', () => {
+    void sessions.get(id)?.stop()
+    sessions.delete(id)
+  })
+
   win.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url)
     return { action: 'deny' }
@@ -32,7 +45,10 @@ function createWindow(): void {
   }
 }
 
-ipcMain.handle('swivel:capture', (_event, req: CaptureRequest) => capture(req))
+ipcMain.handle('swivel:start', (e, opts: LiveOptions) => sessions.get(e.sender.id)?.start(opts))
+ipcMain.handle('swivel:navigate', (e, url: string) => sessions.get(e.sender.id)?.navigate(url))
+ipcMain.handle('swivel:history', (e, action: 'back' | 'forward' | 'reload') => sessions.get(e.sender.id)?.history(action))
+ipcMain.on('swivel:input', (e, input: InputEvent) => void sessions.get(e.sender.id)?.input(input))
 
 app.whenReady().then(() => {
   createWindow()
@@ -46,5 +62,5 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
-  void closeAll()
+  void closeAllBrowsers()
 })

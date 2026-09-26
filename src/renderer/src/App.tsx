@@ -1,74 +1,76 @@
-import { useState, type FormEvent } from 'react'
-import type { CaptureResult, EngineId } from '../../shared/types'
+import { useEffect, useState, type FormEvent } from 'react'
+import type { ConsoleEntry, EngineId } from '../../shared/types'
 import { ENGINES, SIZES, engineLabel } from './engines'
+import { LiveView } from './LiveView'
 
-const platform = window.swivel?.platform ?? 'darwin'
+const platform = window.swivel.platform
 
 function normalizeUrl(input: string): string {
   const trimmed = input.trim()
-  if (/^https?:\/\//i.test(trimmed)) return trimmed
+  if (/^[a-z]+:/i.test(trimmed)) return trimmed
   if (/^(localhost|127\.0\.0\.1)(:\d+)?/i.test(trimmed)) return `http://${trimmed}`
   return `https://${trimmed}`
 }
 
 export function App() {
-  const [address, setAddress] = useState('localhost:3000')
+  const [address, setAddress] = useState('https://example.com')
+  const [url, setUrl] = useState('https://example.com')
   const [engine, setEngine] = useState<EngineId>('chromium')
   const [sizeIndex, setSizeIndex] = useState(2)
   const [dark, setDark] = useState(false)
-  const [result, setResult] = useState<CaptureResult | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [logs, setLogs] = useState<ConsoleEntry[]>([])
+  const [error, setError] = useState<string | null>(null)
+  const viewport = SIZES[sizeIndex].viewport
 
-  async function load(nextEngine = engine, nextSize = sizeIndex, nextDark = dark) {
-    setLoading(true)
-    const res = await window.swivel.capture({
-      engine: nextEngine,
-      url: normalizeUrl(address),
-      viewport: SIZES[nextSize].viewport,
-      colorScheme: nextDark ? 'dark' : 'light'
-    })
-    setResult(res)
-    setLoading(false)
-  }
+  useEffect(() => {
+    const offs = [
+      window.swivel.on('console', (entry) => setLogs((l) => [...l.slice(-199), entry])),
+      window.swivel.on('url', (u) => {
+        setUrl(u)
+        setAddress(u)
+        setError(null)
+      }),
+      window.swivel.on('error', setError)
+    ]
+    return () => offs.forEach((off) => off())
+  }, [])
+
+  // Restart the live page whenever the engine, size or colour scheme changes.
+  useEffect(() => {
+    setError(null)
+    void window.swivel.start({ engine, url, viewport, colorScheme: dark ? 'dark' : 'light' })
+    // url is left out on purpose: navigation inside the page must not restart it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [engine, sizeIndex, dark])
 
   function onSubmit(e: FormEvent) {
     e.preventDefault()
-    void load()
+    const next = normalizeUrl(address)
+    setUrl(next)
+    setError(null)
+    void window.swivel.navigate(next)
   }
 
   return (
     <div className="app">
       <form className="toolbar" onSubmit={onSubmit}>
-        <button type="button" aria-label="Reload" onClick={() => void load()}>⟳</button>
+        <button type="button" aria-label="Back" onClick={() => void window.swivel.history('back')}>←</button>
+        <button type="button" aria-label="Forward" onClick={() => void window.swivel.history('forward')}>→</button>
+        <button type="button" aria-label="Reload" onClick={() => void window.swivel.history('reload')}>⟳</button>
         <label className="address">
           <span className="sr-only">Address</span>
           <input value={address} onChange={(e) => setAddress(e.target.value)} spellCheck={false} />
         </label>
         <div className="segmented" role="group" aria-label="Browser engine">
           {ENGINES.map((id) => (
-            <button
-              key={id}
-              type="button"
-              aria-pressed={engine === id}
-              onClick={() => {
-                setEngine(id)
-                void load(id)
-              }}
-            >
+            <button key={id} type="button" aria-pressed={engine === id} onClick={() => setEngine(id)}>
               {engineLabel(id, platform)}
             </button>
           ))}
         </div>
         <label>
           <span className="sr-only">Screen size</span>
-          <select
-            value={sizeIndex}
-            onChange={(e) => {
-              const i = Number(e.target.value)
-              setSizeIndex(i)
-              void load(engine, i)
-            }}
-          >
+          <select value={sizeIndex} onChange={(e) => setSizeIndex(Number(e.target.value))}>
             {SIZES.map((s, i) => (
               <option key={s.label} value={i}>
                 {s.label} · {s.viewport.width}
@@ -77,30 +79,21 @@ export function App() {
           </select>
         </label>
         <label className="check">
-          <input
-            type="checkbox"
-            checked={dark}
-            onChange={(e) => {
-              setDark(e.target.checked)
-              void load(engine, sizeIndex, e.target.checked)
-            }}
-          />
+          <input type="checkbox" checked={dark} onChange={(e) => setDark(e.target.checked)} />
           Dark
         </label>
       </form>
 
       <main className="viewport">
-        {loading && <p className="status">Loading in {engineLabel(engine, platform)}…</p>}
-        {!loading && result?.error && <p className="status error">{result.error}</p>}
-        {!loading && result?.image && <img src={result.image} alt={`Page rendered in ${engineLabel(result.engine, platform)}`} />}
-        {!loading && !result && <p className="status">Enter a URL and press Enter.</p>}
+        {error && <p className="status error">{error}</p>}
+        <LiveView viewport={viewport} label={engineLabel(engine, platform)} />
       </main>
 
       <section className="console" aria-label="Console">
         <h2>Console</h2>
-        {result?.console.length ? (
+        {logs.length ? (
           <ul>
-            {result.console.map((entry, i) => (
+            {logs.map((entry, i) => (
               <li key={i} className={entry.type}>
                 <span className="tag">{engineLabel(entry.engine, platform)}</span> {entry.text}
               </li>

@@ -5,7 +5,7 @@ export interface Viewport {
   height: number
 }
 
-export interface CaptureRequest {
+export interface LiveOptions {
   engine: EngineId
   url: string
   viewport: Viewport
@@ -18,10 +18,23 @@ export interface ConsoleEntry {
   text: string
 }
 
-export interface CaptureResult {
+export interface Frame {
   engine: EngineId
-  /** PNG screenshot as a data URL. */
-  image: string
-  console: ConsoleEntry[]
-  error?: string
+  /** JPEG bytes. */
+  data: Uint8Array
+  width: number
+  height: number
+}
+
+export type InputEvent =
+  | { kind: 'move'; x: number; y: number }
+  | { kind: 'down' | 'up'; x: number; y: number; button: 'left' | 'middle' | 'right' }
+  | { kind: 'wheel'; x: number; y: number; dx: number; dy: number }
+  | { kind: 'keydown' | 'keyup'; key: string }
+
+export interface LiveEvents {
+  frame: Frame
+  console: ConsoleEntry
+  url: string
+  error: string
 }

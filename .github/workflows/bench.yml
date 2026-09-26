@@ -1,0 +1,30 @@
+name: Live view check
+
+on: workflow_dispatch
+
+jobs:
+  live:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium firefox webkit
+      - run: node scripts/bench-live.mjs
+      - run: node scripts/bench-live.mjs
+        env:
+          SIZE: 390x844
+      - run: npm run build
+      - name: App test (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a node scripts/e2e-live.mjs
+      - name: App test
+        if: runner.os != 'Linux'
+        run: node scripts/e2e-live.mjs

@@ -1,9 +1,17 @@
-import { contextBridge, ipcRenderer } from 'electron'
-import type { CaptureRequest, CaptureResult } from '../shared/types'
+import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
+import type { InputEvent, LiveEvents, LiveOptions } from '../shared/types'
 
 const api = {
   platform: process.platform,
-  capture: (req: CaptureRequest): Promise<CaptureResult> => ipcRenderer.invoke('swivel:capture', req)
+  start: (opts: LiveOptions): Promise<void> => ipcRenderer.invoke('swivel:start', opts),
+  navigate: (url: string): Promise<void> => ipcRenderer.invoke('swivel:navigate', url),
+  history: (action: 'back' | 'forward' | 'reload'): Promise<void> => ipcRenderer.invoke('swivel:history', action),
+  input: (e: InputEvent): void => ipcRenderer.send('swivel:input', e),
+  on<K extends keyof LiveEvents>(event: K, cb: (payload: LiveEvents[K]) => void): () => void {
+    const listener = (_: IpcRendererEvent, payload: LiveEvents[K]) => cb(payload)
+    ipcRenderer.on(`swivel:${event}`, listener)
+    return () => ipcRenderer.removeListener(`swivel:${event}`, listener)
+  }
 }
 
 contextBridge.exposeInMainWorld('swivel', api)

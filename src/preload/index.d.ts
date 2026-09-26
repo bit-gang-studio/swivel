@@ -1,11 +1,8 @@
-import type { CaptureRequest, CaptureResult } from '../shared/types'
+import type { SwivelApi } from './index'
 
 declare global {
   interface Window {
-    swivel: {
-      platform: string
-      capture: (req: CaptureRequest) => Promise<CaptureResult>
-    }
+    swivel: SwivelApi
   }
 }
 
