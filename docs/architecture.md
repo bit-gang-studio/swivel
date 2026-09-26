@@ -11,26 +11,30 @@
 
 The renderer never touches Playwright directly. It calls `window.swivel.*`, which goes over IPC to the main process.
 
-## Engines and live view
+## Engines
 
-`src/main/live.ts` runs one live page per window and replays mouse, wheel and key input in order. `src/main/frames.ts` streams frames:
+Each window has an `EngineHost` (`src/main/host.ts`) that routes to one of three backends:
 
-- **Chromium:** `page.screencast`, which runs at 60 fps.
-- **Firefox and WebKit:** their screencast is capped near 25 fps, but screenshots are fast. So we poll screenshots at up to 60 fps, drop duplicates, slow to 10 fps while idle, and wake on input or navigation.
-
-All engines start at launch and warm up, because Firefox on Windows is slow for its first few seconds.
-
-Frames per second and click lag at 1280×800, from `scripts/bench-live.mjs` (Sep 2026):
-
-| | Chrome | Firefox | WebKit |
+| Engine | macOS | Windows, Linux | How |
 |---|---|---|---|
-| Mac (M-series laptop) | 60 fps, 80 ms | 59 fps, 50 ms | 58 fps, 50 ms |
-| Linux (CI) | 60 fps, 100 ms | 58 fps, 57 ms | 62 fps, 56 ms |
-| Windows (CI, no GPU) | 60 fps, 180 ms | 51 fps, 116 ms | 41 fps, 99 ms |
+| Chrome | Native | Native | Electron's own Chromium in a `WebContentsView` (`native-chrome.ts`) |
+| Safari / WebKit | Native | Streamed | Apple's WKWebView via an N-API addon in `native/webkit-view` (`native-safari.ts`) |
+| Firefox | Streamed | Streamed | Playwright, frames drawn on a canvas (`live.ts`, `frames.ts`) |
 
-`scripts/e2e-live.mjs` drives the built app and checks click, type and scroll in every engine. The manual "Live view check" workflow runs both scripts on all three OSes.
+**Native** views are laid over the page area, so they are real-time, like a normal browser. The page lays out at the emulated viewport size and is scaled to fit. Chrome emulation uses the DevTools protocol, but not while a test runner is attached over remote debugging, because that crashes Electron. Enabling emulation before a page commits also crashes it, so a blank page loads first.
 
-Browsers are not bundled yet. In development they come from `npm run browsers`.
+**Streamed** engines run headless in Playwright. Chromium-style screencast caps Firefox and WebKit near 25 fps, so they poll screenshots at up to 60 fps, drop duplicates, and slow down when idle. Input is replayed in order, with moves and wheel events coalesced. No browser call can block navigation or input. All engines prewarm at launch.
+
+No embeddable Firefox exists for desktop, so it stays streamed.
+
+## Tests
+
+- `scripts/e2e-live.mjs`: drives the built app in every engine. Click, type, scroll, and leaving a page that never finishes loading.
+- `SWIVEL_SELFTEST=1 npx electron .`: checks native engines' size and dark mode with no test runner attached.
+- `scripts/bench-live.mjs`, `diag-lag.mjs`, `diag-scroll.mjs`: frame rate and lag.
+- The manual "Live view check" workflow runs these on all three OSes. Run app tests in CI rather than locally: they launch Electron windows.
+
+Browsers are not bundled yet. In development they come from `npm run browsers`. `npm run build:native` builds the Safari addon on macOS.
 
 ## Naming engines
 

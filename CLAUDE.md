@@ -13,6 +13,7 @@ npm run dev
 npm run typecheck
 npm test
 npm run browsers   # install Playwright browsers
+npm run build:native   # macOS: build the Safari addon
 ```
 
 ## Rules
@@ -21,3 +22,4 @@ npm run browsers   # install Playwright browsers
 - The renderer never imports Playwright or Node. Go through the preload API.
 - Only call WebKit "Safari" on macOS. Use `engineLabel`.
 - No OS-specific code paths without a fallback for the other two.
+- Don't launch the app on the user's Mac for testing (crash dialogs, stray windows). Run app tests in CI with the "Live view check" workflow.
