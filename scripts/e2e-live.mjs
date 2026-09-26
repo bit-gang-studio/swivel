@@ -47,7 +47,29 @@ await withApp(async ({ app, win }) => {
     const ready = await seen(tag, 'ready', 60_000)
     await win.waitForTimeout(500)
     let clicked, typed, scrolled
-    if (tag === 'Chrome') {
+    const natives = await win.evaluate(() => window.swivel.nativeEngines)
+    if (tag === 'Safari' && natives.includes('webkit')) {
+      // Safari is a native WKWebView: input goes straight to it from macOS. Drive the page with
+      // script and check its console reaches Swivel.
+      const run = (js) => app.evaluate((_, js) => globalThis.swivelHost.native('webkit').evaluate(js), js)
+      const width = await new Promise((resolve) => {
+        run("console.log('width:' + innerWidth)")
+        const t = setInterval(async () => {
+          const line = (await win.locator('.console').innerText()).split('\n').find((l) => l.startsWith('Safari') && l.includes('width:'))
+          if (line) {
+            clearInterval(t)
+            resolve(Number(line.split('width:')[1]))
+          }
+        }, 250)
+      })
+      if (width !== 1280) console.log(`Safari innerWidth is ${width}, expected 1280`)
+      await run("document.getElementById('b').click()")
+      clicked = await seen(tag, 'clicked')
+      await run("const i = document.getElementById('i'); i.value = 'Hi'; i.dispatchEvent(new Event('input'))")
+      typed = await seen(tag, 'typed')
+      await run('window.scrollBy(0, 600)')
+      scrolled = await seen(tag, 'scrolled')
+    } else if (tag === 'Chrome') {
       // Chrome is a native view: real input goes straight to it, so inject input through
       // Electron and check its console reaches Swivel.
       const width = await app.evaluate(({ BrowserWindow }) =>

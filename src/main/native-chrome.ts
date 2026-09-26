@@ -17,6 +17,7 @@ export class NativeChrome {
   /** Electron crashes if device emulation is enabled before the view has committed a page. */
   private committed = false
   private blank: Promise<void> = Promise.resolve()
+  private active = false
   private win: BrowserWindow
   private emit: Emit
 
@@ -61,6 +62,7 @@ export class NativeChrome {
     const view = (this.view ??= this.create())
     const sameUrl = this.opts?.url === opts.url
     this.opts = opts
+    this.active = true
     await this.blank
     await this.applyEmulation()
     view.setVisible(!!this.rect)
@@ -92,7 +94,7 @@ export class NativeChrome {
     if (!this.view) return
     this.view.setBounds(this.bounds(rect))
     await this.applyEmulation()
-    if (this.opts) this.view.setVisible(true)
+    if (this.opts && this.active) this.view.setVisible(true)
   }
 
   private bounds(rect: ViewRect) {
@@ -135,6 +137,7 @@ export class NativeChrome {
 
   /** Hide without unloading, so switching back is instant. */
   stop(): void {
+    this.active = false
     this.view?.setVisible(false)
   }
 

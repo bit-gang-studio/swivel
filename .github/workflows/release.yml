@@ -21,6 +21,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm run build:native
       - run: npm run build
       # Unsigned builds until code signing is set up (see the board).
       - run: npx electron-builder --publish always

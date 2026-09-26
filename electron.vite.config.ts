@@ -4,7 +4,7 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   main: {
-    build: { rollupOptions: { external: ['playwright-core'] } }
+    build: { rollupOptions: { external: ['playwright-core', 'swivel-webkit-view'] } }
   },
   preload: {},
   renderer: {

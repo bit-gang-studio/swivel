@@ -1,12 +1,12 @@
 import { useLayoutEffect, useRef, useState } from 'react'
-import type { Viewport } from '../../shared/types'
+import type { EngineId, Viewport } from '../../shared/types'
 
 /**
  * A placeholder for a natively drawn engine. It works out where the page should sit
  * (fitted and centred like the streamed view) and tells the main process, which lays
  * the native view exactly over it.
  */
-export function NativeView({ viewport }: { viewport: Viewport }) {
+export function NativeView({ viewport, engine }: { viewport: Viewport; engine: EngineId }) {
   const area = useRef<HTMLDivElement>(null)
   const [box, setBox] = useState({ width: 0, height: 0 })
 
@@ -34,7 +34,8 @@ export function NativeView({ viewport }: { viewport: Viewport }) {
       observer.disconnect()
       window.removeEventListener('resize', fit)
     }
-  }, [viewport.width, viewport.height])
+    // Resend when the engine changes too, so the newly active native view is placed.
+  }, [viewport.width, viewport.height, engine])
 
   return (
     <div ref={area} className="native-area">

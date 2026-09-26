@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, shell } from 'electron'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { closeAllBrowsers, prewarmBrowsers } from './live'
-import { EngineHost } from './host'
+import { EngineHost, nativeEngines } from './host'
 import { selfTest } from './selftest'
 import type { InputEvent, LiveOptions, ViewRect } from '../shared/types'
 
@@ -34,6 +34,8 @@ function createWindow(): void {
     if (!win.isDestroyed()) win.webContents.send(`swivel:${event}`, payload)
   })
   sessions.set(id, host)
+  // Test runs reach the host from Playwright's main-process evaluate.
+  if (process.env.SWIVEL_HIDDEN) (globalThis as { swivelHost?: EngineHost }).swivelHost = host
   if (process.env.SWIVEL_SELFTEST) win.webContents.once('did-finish-load', () => void selfTest(win, host))
   win.on('close', () => {
     sessions.get(id)?.destroy()
@@ -55,6 +57,7 @@ function createWindow(): void {
 ipcMain.handle('swivel:start', (e, opts: LiveOptions) => sessions.get(e.sender.id)?.start(opts))
 ipcMain.handle('swivel:navigate', (e, url: string) => sessions.get(e.sender.id)?.navigate(url))
 ipcMain.handle('swivel:history', (e, action: 'back' | 'forward' | 'reload') => sessions.get(e.sender.id)?.history(action))
+ipcMain.on('swivel:native-engines', (e) => (e.returnValue = nativeEngines()))
 ipcMain.handle('swivel:rect', (e, rect: ViewRect) => sessions.get(e.sender.id)?.setRect(rect))
 ipcMain.on('swivel:input', (e, input: InputEvent) => sessions.get(e.sender.id)?.input(input))
 

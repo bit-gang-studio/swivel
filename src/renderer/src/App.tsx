@@ -103,8 +103,8 @@ export function App() {
 
       <main className="viewport">
         {error && <p className="status error">{error}</p>}
-        {engine === 'chromium' ? (
-          <NativeView viewport={viewport} />
+        {window.swivel.nativeEngines.includes(engine) ? (
+          <NativeView viewport={viewport} engine={engine} />
         ) : (
           <LiveView viewport={viewport} engine={engine} label={engineLabel(engine, platform)} />
         )}

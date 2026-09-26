@@ -1,8 +1,10 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
-import type { InputEvent, LiveEvents, LiveOptions, ViewRect } from '../shared/types'
+import type { EngineId, InputEvent, LiveEvents, LiveOptions, ViewRect } from '../shared/types'
 
 const api = {
   platform: process.platform,
+  /** Engines drawn natively in the window rather than streamed. */
+  nativeEngines: ipcRenderer.sendSync('swivel:native-engines') as EngineId[],
   start: (opts: LiveOptions): Promise<void> => ipcRenderer.invoke('swivel:start', opts),
   navigate: (url: string): Promise<void> => ipcRenderer.invoke('swivel:navigate', url),
   history: (action: 'back' | 'forward' | 'reload'): Promise<void> => ipcRenderer.invoke('swivel:history', action),

@@ -1,0 +1,15 @@
+{
+  "name": "swivel-webkit-view",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Embeds macOS WKWebView (the Safari engine) in an Electron window.",
+  "main": "index.js",
+  "license": "MIT",
+  "gypfile": true,
+  "scripts": {
+    "install": "node -e \"process.platform==='darwin'||process.exit(0)\" && node-gyp rebuild || exit 0"
+  },
+  "dependencies": {
+    "node-addon-api": "^8.9.2"
+  }
+}
