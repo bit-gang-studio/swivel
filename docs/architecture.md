@@ -13,23 +13,24 @@ The renderer never touches Playwright directly. It calls `window.swivel.*`, whic
 
 ## Engines and live view
 
-`src/main/live.ts` runs one live page per window. Frames stream out with Playwright's `page.screencast`, and mouse, wheel and key input is replayed into the page in order. One headless browser per engine is reused.
+`src/main/live.ts` runs one live page per window and replays mouse, wheel and key input in order. `src/main/frames.ts` streams frames:
 
-**Decision (spike, Sep 2026):** use screencast for all three engines. No snapshot fallback needed.
+- **Chromium:** `page.screencast`, which runs at 60 fps.
+- **Firefox and WebKit:** their screencast is capped near 25 fps, but screenshots are fast. So we poll screenshots at up to 60 fps, drop duplicates, slow to 10 fps while idle, and wake on input or navigation.
 
-Measured frames per second and click-to-screen lag, 1280×800 (`scripts/bench-live.mjs`):
+All engines start at launch and warm up, because Firefox on Windows is slow for its first few seconds.
+
+Frames per second and click lag at 1280×800, from `scripts/bench-live.mjs` (Sep 2026):
 
 | | Chrome | Firefox | WebKit |
 |---|---|---|---|
-| Mac (M-series laptop) | 60 fps, 70 ms | 22 fps, 125 ms | 19 fps, 60 ms |
-| Linux (CI) | 60 fps, 100 ms | 24 fps, 90 ms | 31 fps, 100 ms |
-| Windows (CI) | 60 fps, 135 ms | 11 fps, 180 ms | 19 fps, 120 ms |
-
-Firefox and WebKit are fine for clicking and scrolling but choppy for animations.
-
-Browsers are not bundled yet. In development they come from `npm run browsers`.
+| Mac (M-series laptop) | 60 fps, 80 ms | 59 fps, 50 ms | 58 fps, 50 ms |
+| Linux (CI) | 60 fps, 100 ms | 58 fps, 57 ms | 62 fps, 56 ms |
+| Windows (CI, no GPU) | 60 fps, 180 ms | 51 fps, 116 ms | 41 fps, 99 ms |
 
 `scripts/e2e-live.mjs` drives the built app and checks click, type and scroll in every engine. The manual "Live view check" workflow runs both scripts on all three OSes.
+
+Browsers are not bundled yet. In development they come from `npm run browsers`.
 
 ## Naming engines
 
