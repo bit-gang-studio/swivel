@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import type { ConsoleEntry, EngineId } from '../../shared/types'
 import { ENGINES, SIZES, engineLabel } from './engines'
 import { LiveView } from './LiveView'
@@ -21,13 +21,15 @@ export function App() {
   const [logs, setLogs] = useState<ConsoleEntry[]>([])
   const [error, setError] = useState<string | null>(null)
   const viewport = SIZES[sizeIndex].viewport
+  // Like a real browser, never overwrite the address bar while the user is typing in it.
+  const editing = useRef(false)
 
   useEffect(() => {
     const offs = [
       window.swivel.on('console', (entry) => setLogs((l) => [...l.slice(-199), entry])),
       window.swivel.on('url', (u) => {
         setUrl(u)
-        setAddress(u)
+        if (!editing.current) setAddress(u)
         setError(null)
       }),
       window.swivel.on('error', setError)
@@ -45,6 +47,8 @@ export function App() {
 
   function onSubmit(e: FormEvent) {
     e.preventDefault()
+    editing.current = false
+    ;(document.activeElement as HTMLElement | null)?.blur()
     const next = normalizeUrl(address)
     setUrl(next)
     setError(null)
@@ -59,7 +63,16 @@ export function App() {
         <button type="button" aria-label="Reload" onClick={() => void window.swivel.history('reload')}>⟳</button>
         <label className="address">
           <span className="sr-only">Address</span>
-          <input value={address} onChange={(e) => setAddress(e.target.value)} spellCheck={false} />
+          <input
+            value={address}
+            onChange={(e) => setAddress(e.target.value)}
+            onFocus={(e) => {
+              editing.current = true
+              e.target.select()
+            }}
+            onBlur={() => (editing.current = false)}
+            spellCheck={false}
+          />
         </label>
         <div className="segmented" role="group" aria-label="Browser engine">
           {ENGINES.map((id) => (
