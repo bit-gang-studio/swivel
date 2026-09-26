@@ -30,6 +30,15 @@ jobs:
         env:
           SIZE: 390x844
       - run: npm run build
+      - name: Native self-test (Linux)
+        if: runner.os == 'Linux'
+        timeout-minutes: 3
+        run: SWIVEL_SELFTEST=1 SWIVEL_HIDDEN=1 xvfb-run -a npx electron . --no-sandbox
+      - name: Native self-test
+        if: runner.os != 'Linux'
+        timeout-minutes: 3
+        shell: bash
+        run: SWIVEL_SELFTEST=1 SWIVEL_HIDDEN=1 npx electron .
       - name: App test (Linux)
         timeout-minutes: 8
         if: runner.os == 'Linux'

@@ -11,9 +11,16 @@ export class EngineHost {
   private streamed: LiveSession
   private isNative = false
 
+  /** Test hook: sees console text from any engine. */
+  onConsole?: (text: string) => void
+
   constructor(win: BrowserWindow, emit: Emit) {
-    this.native = new NativeChrome(win, emit)
-    this.streamed = new LiveSession(emit)
+    const tap: Emit = (event, payload) => {
+      if (event === 'console') this.onConsole?.((payload as LiveEvents['console']).text)
+      emit(event, payload)
+    }
+    this.native = new NativeChrome(win, tap)
+    this.streamed = new LiveSession(tap)
   }
 
   start(opts: LiveOptions): Promise<void> {

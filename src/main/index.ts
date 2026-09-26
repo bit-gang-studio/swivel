@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { closeAllBrowsers, prewarmBrowsers } from './live'
 import { EngineHost } from './host'
+import { selfTest } from './selftest'
 import type { InputEvent, LiveOptions, ViewRect } from '../shared/types'
 
 const here = fileURLToPath(new URL('.', import.meta.url))
@@ -29,12 +30,11 @@ function createWindow(): void {
 
   if (process.env.SWIVEL_HIDDEN) win.showInactive()
   const id = win.webContents.id
-  sessions.set(
-    id,
-    new EngineHost(win, (event, payload) => {
-      if (!win.isDestroyed()) win.webContents.send(`swivel:${event}`, payload)
-    })
-  )
+  const host = new EngineHost(win, (event, payload) => {
+    if (!win.isDestroyed()) win.webContents.send(`swivel:${event}`, payload)
+  })
+  sessions.set(id, host)
+  if (process.env.SWIVEL_SELFTEST) win.webContents.once('did-finish-load', () => void selfTest(win, host))
   win.on('close', () => {
     sessions.get(id)?.destroy()
     sessions.delete(id)
