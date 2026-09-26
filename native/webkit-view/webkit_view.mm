@@ -1,15 +1,13 @@
 // Embeds WKWebView, the engine Safari uses, inside an Electron window.
 //
-// The web view fills a clipping container at the on-screen size and is scaled so the page lays out
-// at exactly the emulated viewport width. Scaling uses WKWebView's view scale, as Safari's
-// Responsive Design Mode does, because pageZoom can't go below 0.5.
-// Verify changes here with the screenshots from the Live view check workflow: page-reported
-// sizes have passed while the picture was wrong.
+// The web view sits in a clipping container at the on-screen size. The container's bounds are the
+// viewport size, so AppKit scales the page to fit while it lays out at exactly the viewport width.
+// (Chosen by comparing screenshots: pageZoom stops at 0.5, and private view-scale APIs misdrew.)
+// Verify changes with the Live view check workflow's screenshots, not only page-reported sizes.
 // Console output and navigation events go back to JavaScript through a thread-safe function.
 
 #import <AppKit/AppKit.h>
 #import <WebKit/WebKit.h>
-#import <objc/message.h>
 #include <napi.h>
 #include <map>
 #include <string>
@@ -88,8 +86,6 @@ static NSString* const kConsoleHook = @"(() => {"
 @end
 
 static std::map<int, SwivelWebView*> views;
-// How the page is scaled to fit. Being settled with screenshots; see setScaleMode.
-static std::string scaleMode = "viewscale";
 static std::map<int, EventFn> eventFns;
 static int nextId = 1;
 
@@ -144,33 +140,10 @@ static Napi::Value SetFrame(const Napi::CallbackInfo& info) {
   NSView* parent = v.container.superview;
   double top = parent.isFlipped ? y : parent.bounds.size.height - y - h;
   v.container.frame = NSMakeRect(x, top, w, h);
-  double scale = vw > 0 ? w / vw : 1;
-  SEL setViewScale = NSSelectorFromString(@"_setViewScale:");
-  bool canViewScale = [v.web respondsToSelector:setViewScale];
-  if (canViewScale) ((void (*)(id, SEL, CGFloat))objc_msgSend)(v.web, setViewScale, 1.0);
-  v.web.pageZoom = 1;
-  v.container.bounds = NSMakeRect(0, 0, w, h);
-  if (scaleMode == "bounds") {
-    // Container bounds at viewport size: AppKit scales the web view to the container frame.
-    v.container.bounds = NSMakeRect(0, 0, vw, vh);
-    v.web.frame = NSMakeRect(0, 0, vw, vh);
-  } else if (scaleMode == "viewscale-full" && canViewScale) {
-    double top = v.container.isFlipped ? 0 : h - vh;
-    v.web.frame = NSMakeRect(0, top, vw, vh);
-    ((void (*)(id, SEL, CGFloat))objc_msgSend)(v.web, setViewScale, scale);
-  } else if (scaleMode == "pagezoom" || !canViewScale) {
-    v.web.frame = v.container.bounds;
-    v.web.pageZoom = scale;
-  } else {
-    // "viewscale": web view at the on-screen size; layout width = frame / scale.
-    v.web.frame = v.container.bounds;
-    ((void (*)(id, SEL, CGFloat))objc_msgSend)(v.web, setViewScale, scale);
-  }
-  return info.Env().Undefined();
-}
-
-static Napi::Value SetScaleMode(const Napi::CallbackInfo& info) {
-  scaleMode = info[0].As<Napi::String>();
+  // Container bounds at the viewport size make AppKit scale the full-size web view down to the
+  // container's frame, so the page lays out at exactly the viewport width.
+  v.container.bounds = NSMakeRect(0, 0, vw, vh);
+  v.web.frame = NSMakeRect(0, 0, vw, vh);
   return info.Env().Undefined();
 }
 
@@ -230,7 +203,6 @@ static Napi::Value Destroy(const Napi::CallbackInfo& info) {
 static Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("create", Napi::Function::New(env, Create));
   exports.Set("setFrame", Napi::Function::New(env, SetFrame));
-  exports.Set("setScaleMode", Napi::Function::New(env, SetScaleMode));
   exports.Set("load", Napi::Function::New(env, Load));
   exports.Set("history", Napi::Function::New(env, History));
   exports.Set("setHidden", Napi::Function::New(env, SetHidden));
