@@ -22,7 +22,16 @@ i.oninput=()=>{ if(i.value==='Hi') console.log('typed') };
 addEventListener('scroll',()=>{ if(!window.s){window.s=1;console.log('scrolled')} });
 </script></body>`)
 
+// Tests use the fixed Desktop size (positions below assume 1280×800) and need the console open.
+async function prepare(win) {
+  await win.getByLabel('Screen size').selectOption('2')
+  const toggle = win.getByRole('button', { name: /^Console/ })
+  if ((await toggle.getAttribute('aria-pressed')) !== 'true') await toggle.click()
+  await win.waitForSelector('.console')
+}
+
 await withApp(async ({ app, win }) => {
+  await prepare(win)
   await win.waitForSelector('.native-box')
 
   // Poll the console panel for a line from this engine.

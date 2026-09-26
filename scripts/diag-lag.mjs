@@ -5,8 +5,16 @@ import { withApp } from './app-window.mjs'
 const PAGE = 'data:text/html,' + encodeURIComponent(`<style>html,body{margin:0;height:100%;background:#fff}</style>
 <script>console.log('ready');let on=false;document.addEventListener('mousedown',()=>{on=!on;document.body.style.background=on?'#000':'#fff'})</script>`)
 
+// Tests use the fixed Desktop size (positions below assume 1280×800) and need the console open.
+async function prepare(win) {
+  await win.getByLabel('Screen size').selectOption('2')
+  const toggle = win.getByRole('button', { name: /^Console/ })
+  if ((await toggle.getAttribute('aria-pressed')) !== 'true') await toggle.click()
+  await win.waitForSelector('.console')
+}
+
 await withApp(async ({ app, win }) => {
-  await win.waitForSelector('canvas.live')
+  await prepare(win)
   await win.getByLabel('Address').fill(PAGE)
   await win.getByLabel('Address').press('Enter')
 

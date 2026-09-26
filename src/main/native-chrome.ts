@@ -1,5 +1,5 @@
 import { app, WebContentsView, type BrowserWindow } from 'electron'
-import type { LiveEvents, LiveOptions, ViewRect } from '../shared/types'
+import type { LiveEvents, LiveOptions, ViewRect, Viewport } from '../shared/types'
 
 type Emit = <K extends keyof LiveEvents>(event: K, payload: LiveEvents[K]) => void
 
@@ -103,6 +103,12 @@ export class NativeChrome {
     if (action === 'back') wc.navigationHistory.goBack()
     else if (action === 'forward') wc.navigationHistory.goForward()
     else wc.reload()
+  }
+
+  async resize(viewport: Viewport): Promise<void> {
+    if (!this.opts) return
+    this.opts = { ...this.opts, viewport }
+    await this.applyEmulation()
   }
 
   /** Where the page area is in the window, in window pixels. Sent by the UI when layout changes. */

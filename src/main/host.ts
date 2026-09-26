@@ -1,5 +1,5 @@
 import type { BrowserWindow } from 'electron'
-import type { EngineId, InputEvent, LiveEvents, LiveOptions, ViewRect } from '../shared/types'
+import type { EngineId, InputEvent, LiveEvents, LiveOptions, ViewRect, Viewport } from '../shared/types'
 import { LiveSession } from './live'
 import { NativeChrome } from './native-chrome'
 import { NativeSafari, webkitAddon } from './native-safari'
@@ -11,6 +11,7 @@ interface NativeEngine {
   navigate(url: string): Promise<void>
   history(action: 'back' | 'forward' | 'reload'): Promise<void>
   setRect(rect: ViewRect): Promise<void>
+  resize(viewport: Viewport): Promise<void>
   stop(): void
   destroy(): void
 }
@@ -63,6 +64,10 @@ export class EngineHost {
 
   history(action: 'back' | 'forward' | 'reload'): Promise<void> {
     return this.current ? this.current.history(action) : this.streamed.history(action)
+  }
+
+  resize(viewport: Viewport): Promise<void> {
+    return this.current ? this.current.resize(viewport) : this.streamed.resize(viewport)
   }
 
   input(e: InputEvent): void {

@@ -1,5 +1,5 @@
 import { chromium, firefox, webkit, type Browser, type BrowserContext, type BrowserType, type Page } from 'playwright-core'
-import type { EngineId, InputEvent, LiveEvents, LiveOptions } from '../shared/types'
+import type { EngineId, InputEvent, LiveEvents, LiveOptions, Viewport } from '../shared/types'
 import { FrameSource } from './frames'
 
 const types: Record<EngineId, BrowserType> = { chromium, firefox, webkit }
@@ -133,6 +133,16 @@ export class LiveSession {
     } finally {
       if (page === this.page) this.emit('loading', false)
     }
+  }
+
+  /** Change the viewport without reloading the page. */
+  async resize(viewport: Viewport): Promise<void> {
+    await this.ready
+    const page = this.page
+    if (!page || !this.opts) return
+    this.opts = { ...this.opts, viewport }
+    await within(page.setViewportSize(viewport), 3000, undefined)
+    await this.frames?.setSize(viewport)
   }
 
   async navigate(url: string): Promise<void> {

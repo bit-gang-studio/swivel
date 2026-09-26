@@ -51,6 +51,16 @@ export class FrameSource {
     }
   }
 
+  /** New viewport size: frames come out at this size from now on. */
+  async setSize(size: { width: number; height: number }): Promise<void> {
+    this.size = size
+    this.wake()
+    if (this.engine === 'chromium' && !this.stopped) {
+      await this.page.screencast.stop().catch(() => {})
+      await this.start()
+    }
+  }
+
   /** Call on user input so an idle page goes back to full speed at once. */
   wake(): void {
     this.unchanged = 0

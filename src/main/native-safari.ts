@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module'
 import type { BrowserWindow } from 'electron'
-import type { LiveEvents, LiveOptions, ViewRect } from '../shared/types'
+import type { LiveEvents, LiveOptions, ViewRect, Viewport } from '../shared/types'
 
 type Emit = <K extends keyof LiveEvents>(event: K, payload: LiveEvents[K]) => void
 
@@ -70,6 +70,12 @@ export class NativeSafari {
 
   async history(action: 'back' | 'forward' | 'reload'): Promise<void> {
     if (this.id !== undefined) this.addon.history(this.id, action)
+  }
+
+  async resize(viewport: Viewport): Promise<void> {
+    if (!this.opts) return
+    this.opts = { ...this.opts, viewport }
+    this.layout()
   }
 
   async setRect(rect: ViewRect): Promise<void> {

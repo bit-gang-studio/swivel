@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
-import type { EngineId, InputEvent, LiveEvents, LiveOptions, ViewRect } from '../shared/types'
+import type { EngineId, InputEvent, LiveEvents, LiveOptions, ViewRect, Viewport } from '../shared/types'
 
 const api = {
   platform: process.platform,
@@ -10,6 +10,8 @@ const api = {
   history: (action: 'back' | 'forward' | 'reload'): Promise<void> => ipcRenderer.invoke('swivel:history', action),
   input: (e: InputEvent): void => ipcRenderer.send('swivel:input', e),
   setRect: (rect: ViewRect): Promise<void> => ipcRenderer.invoke('swivel:rect', rect),
+  /** Change the viewport size without reloading the page. */
+  resize: (viewport: Viewport): Promise<void> => ipcRenderer.invoke('swivel:resize', viewport),
   on<K extends keyof LiveEvents>(event: K, cb: (payload: LiveEvents[K]) => void): () => void {
     const listener = (_: IpcRendererEvent, payload: LiveEvents[K]) => cb(payload)
     ipcRenderer.on(`swivel:${event}`, listener)

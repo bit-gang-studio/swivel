@@ -5,8 +5,16 @@ const PAGE = 'data:text/html,' + encodeURIComponent(`<body style="margin:0;heigh
 <script>console.log('ready');addEventListener('scroll',()=>{ window.last=performance.now() })</script></body>`)
 const SITES = (process.env.SITES ?? 'https://github.com,https://www.apple.com,https://developer.mozilla.org/en-US/,https://news.ycombinator.com,https://www.wikipedia.org').split(',')
 
+// Tests use the fixed Desktop size (positions below assume 1280×800) and need the console open.
+async function prepare(win) {
+  await win.getByLabel('Screen size').selectOption('2')
+  const toggle = win.getByRole('button', { name: /^Console/ })
+  if ((await toggle.getAttribute('aria-pressed')) !== 'true') await toggle.click()
+  await win.waitForSelector('.console')
+}
+
 await withApp(async ({ app, win }) => {
-  await win.waitForSelector('canvas.live')
+  await prepare(win)
   const addr = win.getByLabel('Address')
   async function go(url) { await addr.fill(url); await addr.press('Enter') }
   async function seen(tag, text, timeout = 60_000) {

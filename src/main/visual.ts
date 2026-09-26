@@ -18,8 +18,8 @@ export async function visualCheck(win: BrowserWindow, dir: string): Promise<void
   const ui = (js: string) => win.webContents.executeJavaScript(js)
   const click = (label: string) =>
     ui(`[...document.querySelectorAll('button')].find((b) => /^(${label})$/.test(b.textContent.trim()))?.click()`)
-  const size = (i: number) =>
-    ui(`(() => { const s = document.querySelector('select'); s.value = '${i}'; s.dispatchEvent(new Event('change', { bubbles: true })) })()`)
+  const size = (value: string) =>
+    ui(`(() => { const s = document.querySelector('select'); s.value = '${value}'; s.dispatchEvent(new Event('change', { bubbles: true })) })()`)
   const go = (url: string) =>
     ui(`(() => {
       const input = document.querySelector('.address input')
@@ -42,14 +42,21 @@ export async function visualCheck(win: BrowserWindow, dir: string): Promise<void
   await sleep(3000)
   await go(process.env.SWIVEL_VISUAL_URL ?? 'https://en.wikipedia.org/wiki/Oscar_Piastri')
   await sleep(6000)
+  await shot('default')
+  // Resize the window in "Fill window": the page should follow without reloading.
+  win.setBounds({ x: 0, y: 0, width: 1000, height: 700 })
+  await sleep(3000)
+  await shot('default-resized')
+  win.setBounds({ x: 0, y: 0, width: 1400, height: 900 })
+  await sleep(2000)
   for (const [engine, label] of [['chrome', 'Chrome'], ['firefox', 'Firefox'], ['safari', 'Safari|WebKit']]) {
     await click(label)
-    for (const [i, name] of [[2, 'desktop'], [0, 'phone']] as const) {
-      await size(i)
+    for (const [value, name] of [['fill', 'fill'], ['2', 'desktop'], ['0', 'phone']] as const) {
+      await size(value)
       await sleep(5000)
       await shot(`${engine}-${name}`)
     }
-    await size(2)
+    await size('fill')
   }
   app.exit(0)
 }
