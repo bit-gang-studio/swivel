@@ -28,7 +28,15 @@ export class NativeChrome {
 
   private create(): WebContentsView {
     const view = new WebContentsView({
-      webPreferences: { partition: 'swivel-chrome', sandbox: true, contextIsolation: true, nodeIntegration: false }
+      webPreferences: {
+        partition: 'swivel-chrome',
+        sandbox: true,
+        contextIsolation: true,
+        nodeIntegration: false,
+        // Zoom is stored per site. This default means a site visited for the first time already
+        // starts at the right scale, instead of reflowing once the zoom is reapplied.
+        zoomFactor: this.scale()
+      }
     })
     const wc = view.webContents
     wc.on('console-message', (e) => this.emit('console', { engine: 'chromium', type: LEVELS[e.level] ?? 'log', text: e.message.replace(/%c/g, '') }))
@@ -59,9 +67,9 @@ export class NativeChrome {
   }
 
   async start(opts: LiveOptions): Promise<void> {
-    const view = (this.view ??= this.create())
     const sameUrl = this.opts?.url === opts.url
     this.opts = opts
+    const view = (this.view ??= this.create())
     this.active = true
     await this.blank
     await this.applyEmulation()
@@ -97,6 +105,10 @@ export class NativeChrome {
     if (this.opts && this.active) this.view.setVisible(true)
   }
 
+  private scale(): number {
+    return this.rect && this.opts ? this.rect.width / this.opts.viewport.width : 1
+  }
+
   private bounds(rect: ViewRect) {
     return { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) }
   }
@@ -104,12 +116,12 @@ export class NativeChrome {
   private async applyEmulation(): Promise<void> {
     const wc = this.view?.webContents
     if (!wc || !this.opts || !this.committed || wc.isDestroyed()) return
-    const { viewport, colorScheme } = this.opts
+    const { colorScheme } = this.opts
 
     // The view is sized to fit the page area; zoom makes the page lay out at the viewport width.
     // (A DevTools size override draws at full size and spills outside the view, so it's not used.)
     // Zoom is per origin, so this is reapplied after every navigation.
-    if (this.rect) wc.setZoomFactor(this.rect.width / viewport.width)
+    if (this.rect) wc.setZoomFactor(this.scale())
 
     // Dark mode needs the DevTools protocol. Attaching it while a test runner is connected over
     // remote debugging crashes Electron, so it is skipped then.
