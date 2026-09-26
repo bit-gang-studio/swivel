@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module'
 import type { BrowserWindow } from 'electron'
 import type { LiveEvents, LiveOptions, ViewRect, Viewport } from '../shared/types'
+import { findInPage, type FindRequest, type FindResult } from '../shared/find'
 
 type Emit = <K extends keyof LiveEvents>(event: K, payload: LiveEvents[K]) => void
 
@@ -12,6 +13,8 @@ interface Addon {
   setHidden(id: number, hidden: boolean): void
   setDark(id: number, dark: boolean): void
   evaluate(id: number, script: string): void
+  /** Runs script and reports its string result as a 'result' event: a = request id, b = result. */
+  evaluateWithResult(id: number, script: string, requestId: string): void
   destroy(id: number): void
 }
 
@@ -36,6 +39,8 @@ export class NativeSafari {
   private emit: Emit
   private addon: Addon
   private active = false
+  private results = new Map<string, (value: string) => void>()
+  private nextRequest = 1
 
   constructor(win: BrowserWindow, emit: Emit, addon: Addon) {
     this.win = win
@@ -49,6 +54,7 @@ export class NativeSafari {
       else if (type === 'loading') this.emit('loading', a === '1')
       else if (type === 'url') this.emit('url', a)
       else if (type === 'error') this.emit('error', a)
+      else if (type === 'result') this.results.get(a)?.(b)
     })
   }
 
@@ -90,8 +96,34 @@ export class NativeSafari {
     this.addon.setHidden(this.id, !this.active)
   }
 
+  private evaluate<T>(script: string, fallback: T): Promise<T> {
+    const id = this.id
+    if (id === undefined) return Promise.resolve(fallback)
+    const requestId = String(this.nextRequest++)
+    return new Promise<T>((resolve) => {
+      const done = (value: T) => {
+        this.results.delete(requestId)
+        resolve(value)
+      }
+      this.results.set(requestId, (raw) => {
+        try {
+          done(JSON.parse(raw) as T)
+        } catch {
+          done(fallback)
+        }
+      })
+      setTimeout(() => done(fallback), 2000)
+      this.addon.evaluateWithResult(id, script, requestId)
+    })
+  }
+
+  async find(req: FindRequest): Promise<void> {
+    const script = `JSON.stringify((${findInPage.toString()})(${JSON.stringify(req)}))`
+    this.emit('find', await this.evaluate<FindResult>(script, { matches: 0, active: 0 }))
+  }
+
   /** Test hook. */
-  evaluate(script: string): void {
+  run(script: string): void {
     if (this.id !== undefined) this.addon.evaluate(this.id, script)
   }
 

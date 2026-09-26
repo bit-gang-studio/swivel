@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
 import type { EngineId, Viewport } from '../../shared/types'
 
 const BUTTONS = ['left', 'middle', 'right'] as const
@@ -10,6 +10,23 @@ export function LiveView({ viewport, label, engine }: { viewport: Viewport; labe
   const [shownEngine, setShownEngine] = useState<EngineId | null>(null)
   const [cursor, setCursor] = useState('default')
   useEffect(() => window.swivel.on('cursor', setCursor), [])
+
+  // Display size in exact CSS pixels. At scale 1 each frame pixel lands on a screen pixel;
+  // letting CSS shrink the canvas to fit resampled it very slightly and softened text.
+  const area = useRef<HTMLDivElement>(null)
+  const [box, setBox] = useState({ width: 0, height: 0 })
+  useLayoutEffect(() => {
+    const el = area.current
+    if (!el) return
+    const fit = () => {
+      const scale = Math.min(1, el.clientWidth / viewport.width, el.clientHeight / viewport.height)
+      setBox({ width: Math.floor(viewport.width * scale), height: Math.floor(viewport.height * scale) })
+    }
+    fit()
+    const observer = new ResizeObserver(fit)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [viewport.width, viewport.height])
   const pendingMove = useRef<{ x: number; y: number } | null>(null)
 
   useEffect(() => {
@@ -71,10 +88,11 @@ export function LiveView({ viewport, label, engine }: { viewport: Viewport; labe
   }
 
   return (
+    <div ref={area} className="live-area">
     <canvas
       ref={canvas}
       className={shownEngine === engine ? 'live' : 'live stale'}
-      style={{ cursor }}
+      style={{ cursor, width: box.width, height: box.height }}
       tabIndex={0}
       aria-label={`Live page in ${label}`}
       width={viewport.width}
@@ -90,5 +108,6 @@ export function LiveView({ viewport, label, engine }: { viewport: Viewport; labe
       onKeyUp={(e) => onKey(e, 'keyup')}
       onContextMenu={(e) => e.preventDefault()}
     />
+    </div>
   )
 }

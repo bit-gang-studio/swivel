@@ -1,6 +1,7 @@
 import { chromium, firefox, webkit, type Browser, type BrowserContext, type BrowserType, type Page } from 'playwright-core'
 import type { EngineId, InputEvent, LiveEvents, LiveOptions, Viewport } from '../shared/types'
 import { FrameSource } from './frames'
+import { findInPage, type FindRequest } from '../shared/find'
 
 const types: Record<EngineId, BrowserType> = { chromium, firefox, webkit }
 const browsers = new Map<EngineId, Promise<Browser>>()
@@ -137,6 +138,15 @@ export class LiveSession {
     } finally {
       if (page === this.page) this.emit('loading', false)
     }
+  }
+
+  async find(req: FindRequest): Promise<void> {
+    await this.ready
+    const page = this.page
+    if (!page) return
+    const result = await within(page.evaluate(findInPage, req), 2000, { matches: 0, active: 0 })
+    this.emit('find', result)
+    this.frames?.wake()
   }
 
   /** Change the viewport without reloading the page. */

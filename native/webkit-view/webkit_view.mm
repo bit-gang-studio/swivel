@@ -185,6 +185,22 @@ static Napi::Value Evaluate(const Napi::CallbackInfo& info) {
   return info.Env().Undefined();
 }
 
+// evaluateWithResult(id, script, requestId): the script's string result comes back as a
+// 'result' event with a = requestId, b = result (empty on error).
+static Napi::Value EvaluateWithResult(const Napi::CallbackInfo& info) {
+  SwivelWebView* v = Get(info);
+  std::string js = info[1].As<Napi::String>();
+  std::string requestId = info[2].As<Napi::String>();
+  if (!v) return info.Env().Undefined();
+  __weak SwivelWebView* weak = v;
+  [v.web evaluateJavaScript:[NSString stringWithUTF8String:js.c_str()]
+          completionHandler:^(id result, NSError* error) {
+            NSString* text = [result isKindOfClass:[NSString class]] ? result : @"";
+            [weak send:"result" a:requestId b:text.UTF8String];
+          }];
+  return info.Env().Undefined();
+}
+
 static Napi::Value Destroy(const Napi::CallbackInfo& info) {
   int id = info[0].As<Napi::Number>().Int32Value();
   SwivelWebView* v = Get(info);
@@ -208,6 +224,7 @@ static Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("setHidden", Napi::Function::New(env, SetHidden));
   exports.Set("setDark", Napi::Function::New(env, SetDark));
   exports.Set("evaluate", Napi::Function::New(env, Evaluate));
+  exports.Set("evaluateWithResult", Napi::Function::New(env, EvaluateWithResult));
   exports.Set("destroy", Napi::Function::New(env, Destroy));
   return exports;
 }

@@ -3,6 +3,7 @@ import type { EngineId, InputEvent, LiveEvents, LiveOptions, ViewRect, Viewport 
 import { LiveSession } from './live'
 import { NativeChrome } from './native-chrome'
 import { NativeSafari, webkitAddon } from './native-safari'
+import type { FindRequest } from '../shared/find'
 
 type Emit = <K extends keyof LiveEvents>(event: K, payload: LiveEvents[K]) => void
 
@@ -12,6 +13,7 @@ interface NativeEngine {
   history(action: 'back' | 'forward' | 'reload'): Promise<void>
   setRect(rect: ViewRect): Promise<void>
   resize(viewport: Viewport): Promise<void>
+  find(req: FindRequest): Promise<void>
   stop(): void
   destroy(): void
 }
@@ -72,6 +74,10 @@ export class EngineHost {
 
   resize(viewport: Viewport): Promise<void> {
     return this.current ? this.current.resize(viewport) : this.streamed.resize(viewport)
+  }
+
+  find(req: FindRequest): Promise<void> {
+    return this.current ? this.current.find(req) : this.streamed.find(req)
   }
 
   input(e: InputEvent): void {

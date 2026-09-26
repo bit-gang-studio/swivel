@@ -3,6 +3,7 @@ import type { ConsoleEntry, EngineId, Viewport } from '../../shared/types'
 import { ENGINES, SIZES, engineHint, engineLabel } from './engines'
 import { LiveView } from './LiveView'
 import { NativeView } from './NativeView'
+import { FindBar } from './FindBar'
 
 /** 16px stroke icons, drawn in the current text colour. */
 function Icon({ d }: { d: string }) {
@@ -45,6 +46,9 @@ export function App() {
     }
   })
   const [unseenErrors, setUnseenErrors] = useState(0)
+  const [findOpen, setFindOpen] = useState(false)
+  const [findFocus, setFindFocus] = useState(0)
+  const addressInput = useRef<HTMLInputElement>(null)
   const [dark, setDark] = useState(false)
   const [logs, setLogs] = useState<ConsoleEntry[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -106,6 +110,26 @@ export function App() {
     if (size === 'fill' && area) void window.swivel.resize(area)
   }, [size, area?.width, area?.height])
 
+  // Menu shortcuts (they work even when a native page view has focus).
+  useEffect(() =>
+    window.swivel.on('command', (c) => {
+      if (c === 'find') {
+        setFindOpen(true)
+        setFindFocus((n) => n + 1)
+      } else if (c === 'focus-address') {
+        addressInput.current?.focus()
+        addressInput.current?.select()
+      } else if (c === 'reload' || c === 'back' || c === 'forward') {
+        void window.swivel.history(c)
+      } else if (c === 'console') {
+        toggleConsoleRef.current()
+      }
+    })
+  , [])
+
+  const toggleConsoleRef = useRef(() => {})
+  toggleConsoleRef.current = toggleConsole
+
   function toggleConsole() {
     const open = !consoleOpen
     setConsoleOpen(open)
@@ -128,7 +152,7 @@ export function App() {
   }
 
   return (
-    <div className={consoleOpen ? 'app console-open' : 'app'}>
+    <div className={['app', consoleOpen && 'console-open', findOpen && 'find-open'].filter(Boolean).join(' ')}>
       <form className="toolbar" onSubmit={onSubmit}>
         <button type="button" className="icon" aria-label="Back" title="Back" onClick={() => void window.swivel.history('back')}>
           <Icon d={ICONS.back} />
@@ -142,6 +166,7 @@ export function App() {
         <label className="address">
           <span className="sr-only">Address</span>
           <input
+            ref={addressInput}
             value={address}
             onChange={(e) => setAddress(e.target.value)}
             onFocus={(e) => {
@@ -179,6 +204,8 @@ export function App() {
         </button>
         <div className={loading ? 'progress on' : 'progress'} role="progressbar" aria-label="Page loading" aria-busy={loading} />
       </form>
+
+      {findOpen && <FindBar focusToken={findFocus} onClose={() => setFindOpen(false)} />}
 
       <main ref={areaRef} className={size === 'fill' ? 'viewport fill' : 'viewport'}>
         {error && <p className="status error">{error}</p>}

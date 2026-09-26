@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
+import type { FindRequest } from '../shared/find'
 import type { EngineId, InputEvent, LiveEvents, LiveOptions, ViewRect, Viewport } from '../shared/types'
 
 const api = {
@@ -12,6 +13,7 @@ const api = {
   setRect: (rect: ViewRect): Promise<void> => ipcRenderer.invoke('swivel:rect', rect),
   /** Change the viewport size without reloading the page. */
   resize: (viewport: Viewport): Promise<void> => ipcRenderer.invoke('swivel:resize', viewport),
+  find: (req: FindRequest): Promise<void> => ipcRenderer.invoke('swivel:find', req),
   on<K extends keyof LiveEvents>(event: K, cb: (payload: LiveEvents[K]) => void): () => void {
     const listener = (_: IpcRendererEvent, payload: LiveEvents[K]) => cb(payload)
     ipcRenderer.on(`swivel:${event}`, listener)

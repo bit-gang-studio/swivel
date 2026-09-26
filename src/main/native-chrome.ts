@@ -1,5 +1,6 @@
 import { app, WebContentsView, type BrowserWindow } from 'electron'
 import type { LiveEvents, LiveOptions, ViewRect, Viewport } from '../shared/types'
+import type { FindRequest } from '../shared/find'
 
 type Emit = <K extends keyof LiveEvents>(event: K, payload: LiveEvents[K]) => void
 
@@ -51,6 +52,7 @@ export class NativeChrome {
     wc.on('did-fail-load', (_e, code, desc, url, isMainFrame) => {
       if (isMainFrame && code !== -3) this.emit('error', `${desc} (${url})`) // -3 is an aborted load
     })
+    wc.on('found-in-page', (_e, r) => this.emit('find', { matches: r.matches, active: r.activeMatchOrdinal }))
     wc.setWindowOpenHandler(({ url }) => {
       void wc.loadURL(url)
       return { action: 'deny' }
@@ -103,6 +105,18 @@ export class NativeChrome {
     if (action === 'back') wc.navigationHistory.goBack()
     else if (action === 'forward') wc.navigationHistory.goForward()
     else wc.reload()
+  }
+
+  /** Chrome's own find: highlights every match, like the real browser. */
+  async find(req: FindRequest): Promise<void> {
+    const wc = this.view?.webContents
+    if (!wc) return
+    if (!req.text) {
+      wc.stopFindInPage('clearSelection')
+      this.emit('find', { matches: 0, active: 0 })
+      return
+    }
+    wc.findInPage(req.text, { forward: !req.backwards, findNext: req.restart })
   }
 
   async resize(viewport: Viewport): Promise<void> {

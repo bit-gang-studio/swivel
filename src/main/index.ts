@@ -5,6 +5,8 @@ import { closeAllBrowsers, prewarmBrowsers } from './live'
 import { EngineHost, nativeEngines } from './host'
 import { selfTest } from './selftest'
 import { visualCheck } from './visual'
+import { installMenu } from './menu'
+import type { FindRequest } from '../shared/find'
 import type { InputEvent, LiveOptions, ViewRect, Viewport } from '../shared/types'
 
 // Electron's own security warnings would show up in the console of every page viewed in Chrome.
@@ -64,11 +66,13 @@ ipcMain.handle('swivel:start', (e, opts: LiveOptions) => sessions.get(e.sender.i
 ipcMain.handle('swivel:navigate', (e, url: string) => sessions.get(e.sender.id)?.navigate(url))
 ipcMain.handle('swivel:history', (e, action: 'back' | 'forward' | 'reload') => sessions.get(e.sender.id)?.history(action))
 ipcMain.on('swivel:native-engines', (e) => (e.returnValue = nativeEngines()))
+ipcMain.handle('swivel:find', (e, req: FindRequest) => sessions.get(e.sender.id)?.find(req))
 ipcMain.handle('swivel:resize', (e, viewport: Viewport) => sessions.get(e.sender.id)?.resize(viewport))
 ipcMain.handle('swivel:rect', (e, rect: ViewRect) => sessions.get(e.sender.id)?.setRect(rect))
 ipcMain.on('swivel:input', (e, input: InputEvent) => sessions.get(e.sender.id)?.input(input))
 
 app.whenReady().then(() => {
+  installMenu()
   createWindow()
   prewarmBrowsers()
   app.on('activate', () => {

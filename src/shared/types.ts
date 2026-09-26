@@ -43,6 +43,10 @@ export interface LiveEvents {
   loading: boolean
   /** CSS cursor for the point under the mouse, for streamed engines. */
   cursor: string
+  /** Find-in-page progress. */
+  find: { matches: number; active: number }
+  /** A menu command, such as 'find' or 'focus-address'. */
+  command: string
 }
 
 /** The page area's position in the window, in CSS pixels of the app window. */

@@ -61,7 +61,7 @@ await withApp(async ({ app, win }) => {
     if (tag === 'WebKit' && natives.includes('webkit')) {
       // Safari is a native WKWebView: input goes straight to it from macOS. Drive the page with
       // script and check its console reaches Swivel.
-      const run = (js) => app.evaluate((_, js) => globalThis.swivelHost.native('webkit').evaluate(js), js)
+      const run = (js) => app.evaluate((_, js) => globalThis.swivelHost.native('webkit').run(js), js)
       const width = await new Promise((resolve) => {
         run("console.log('width:' + innerWidth)")
         const t = setInterval(async () => {
@@ -132,6 +132,18 @@ await withApp(async ({ app, win }) => {
       scrolled = await seen(tag, 'scrolled')
     }
 
+    // Find in page: open it the way the menu shortcut does, search, expect exactly one match.
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('swivel:command', 'find'))
+    await win.getByPlaceholder('Find in page').fill('click me')
+    let count = ''
+    for (let i = 0; i < 20 && count !== '1/1'; i++) {
+      await win.waitForTimeout(150)
+      count = await win.locator('.find-count').innerText()
+    }
+    if (count !== '1/1') console.log(`${tag} find shows "${count}", expected 1/1`)
+    const found = count === '1/1'
+    await win.getByPlaceholder('Find in page').press('Escape')
+
     // Navigating away from a page that is still loading must not wait for it.
     await win.getByLabel('Address').fill(SLOW)
     await win.getByLabel('Address').press('Enter')
@@ -143,11 +155,11 @@ await withApp(async ({ app, win }) => {
     const escaped = await seen(tag, marker, 10_000)
     const escapeMs = escaped ? Date.now() - t0 : -1
 
-    results.push({ engine: tag, ready, clicked, typed, scrolled, pointer, leftSlowPageMs: escapeMs })
+    results.push({ engine: tag, ready, clicked, typed, scrolled, pointer, found, leftSlowPageMs: escapeMs })
   }
 
   if (process.env.SHOT) await win.screenshot({ path: process.env.SHOT })
-  const failed = results.some((r) => !r.ready || !r.clicked || !r.typed || !r.scrolled || !r.pointer || r.leftSlowPageMs < 0)
+  const failed = results.some((r) => !r.ready || !r.clicked || !r.typed || !r.scrolled || !r.pointer || !r.found || r.leftSlowPageMs < 0)
   if (failed) {
     console.log('address:', await win.getByLabel('Address').inputValue())
     console.log('status:', await win.locator('.status').allInnerTexts())
