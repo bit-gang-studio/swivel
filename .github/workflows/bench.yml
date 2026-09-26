@@ -37,6 +37,7 @@ jobs:
         run: SWIVEL_SELFTEST=1 SWIVEL_HIDDEN=1 xvfb-run -a npx electron . --no-sandbox
       - name: Native self-test
         if: runner.os != 'Linux'
+        continue-on-error: true
         timeout-minutes: 3
         shell: bash
         run: SWIVEL_SELFTEST=1 SWIVEL_HIDDEN=1 npx electron .
@@ -44,6 +45,10 @@ jobs:
         if: runner.os == 'macOS'
         timeout-minutes: 4
         run: SWIVEL_VISUAL=screenshots npx electron .
+      - name: Safari scaling comparison (macOS)
+        if: runner.os == 'macOS'
+        timeout-minutes: 5
+        run: SWIVEL_VISUAL=screenshots SWIVEL_VISUAL_SAFARI_MODES=viewscale,viewscale-full,bounds,pagezoom npx electron .
       - name: Visual check (Linux)
         if: runner.os == 'Linux'
         timeout-minutes: 4

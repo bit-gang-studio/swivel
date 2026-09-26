@@ -3,6 +3,7 @@ import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { app, type BrowserWindow } from 'electron'
+import { webkitAddon } from './native-safari'
 
 const run = promisify(execFile)
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -42,7 +43,9 @@ export async function visualCheck(win: BrowserWindow, dir: string): Promise<void
   await sleep(3000)
   await go(process.env.SWIVEL_VISUAL_URL ?? 'https://en.wikipedia.org/wiki/Oscar_Piastri')
   await sleep(6000)
-  for (const [engine, label] of [['chrome', 'Chrome'], ['firefox', 'Firefox'], ['safari', 'Safari|WebKit']]) {
+  const modes = (process.env.SWIVEL_VISUAL_SAFARI_MODES ?? '').split(',').filter(Boolean)
+  const engines: [string, string][] = modes.length ? [] : [['chrome', 'Chrome'], ['firefox', 'Firefox'], ['safari', 'Safari|WebKit']]
+  for (const [engine, label] of engines) {
     await click(label)
     for (const [i, name] of [[2, 'desktop'], [0, 'phone']] as const) {
       await size(i)
@@ -50,6 +53,18 @@ export async function visualCheck(win: BrowserWindow, dir: string): Promise<void
       await shot(`${engine}-${name}`)
     }
     await size(2)
+  }
+  // Compare Safari scaling methods side by side.
+  for (const mode of modes) {
+    webkitAddon?.setScaleMode(mode)
+    await click('Chrome')
+    await sleep(1000)
+    await click('Safari|WebKit')
+    for (const [i, name] of [[2, 'desktop'], [0, 'phone'], [2, 'desktop-again']] as const) {
+      await size(i)
+      await sleep(5000)
+      await shot(`safari-${mode}-${name}`)
+    }
   }
   app.exit(0)
 }

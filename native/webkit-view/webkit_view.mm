@@ -88,6 +88,8 @@ static NSString* const kConsoleHook = @"(() => {"
 @end
 
 static std::map<int, SwivelWebView*> views;
+// How the page is scaled to fit. Being settled with screenshots; see setScaleMode.
+static std::string scaleMode = "viewscale";
 static std::map<int, EventFn> eventFns;
 static int nextId = 1;
 
@@ -144,16 +146,31 @@ static Napi::Value SetFrame(const Napi::CallbackInfo& info) {
   v.container.frame = NSMakeRect(x, top, w, h);
   double scale = vw > 0 ? w / vw : 1;
   SEL setViewScale = NSSelectorFromString(@"_setViewScale:");
-  if ([v.web respondsToSelector:setViewScale]) {
-    // The web view is the full viewport size, so the page lays out at the viewport width. View
-    // scale shrinks its drawing to fit, anchored top-left, and the container clips the rest.
+  bool canViewScale = [v.web respondsToSelector:setViewScale];
+  if (canViewScale) ((void (*)(id, SEL, CGFloat))objc_msgSend)(v.web, setViewScale, 1.0);
+  v.web.pageZoom = 1;
+  v.container.bounds = NSMakeRect(0, 0, w, h);
+  if (scaleMode == "bounds") {
+    // Container bounds at viewport size: AppKit scales the web view to the container frame.
+    v.container.bounds = NSMakeRect(0, 0, vw, vh);
+    v.web.frame = NSMakeRect(0, 0, vw, vh);
+  } else if (scaleMode == "viewscale-full" && canViewScale) {
     double top = v.container.isFlipped ? 0 : h - vh;
     v.web.frame = NSMakeRect(0, top, vw, vh);
     ((void (*)(id, SEL, CGFloat))objc_msgSend)(v.web, setViewScale, scale);
-  } else {
+  } else if (scaleMode == "pagezoom" || !canViewScale) {
     v.web.frame = v.container.bounds;
-    v.web.pageZoom = scale;  // Fallback; limited to 0.5 and up.
+    v.web.pageZoom = scale;
+  } else {
+    // "viewscale": web view at the on-screen size; layout width = frame / scale.
+    v.web.frame = v.container.bounds;
+    ((void (*)(id, SEL, CGFloat))objc_msgSend)(v.web, setViewScale, scale);
   }
+  return info.Env().Undefined();
+}
+
+static Napi::Value SetScaleMode(const Napi::CallbackInfo& info) {
+  scaleMode = info[0].As<Napi::String>();
   return info.Env().Undefined();
 }
 
@@ -213,6 +230,7 @@ static Napi::Value Destroy(const Napi::CallbackInfo& info) {
 static Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("create", Napi::Function::New(env, Create));
   exports.Set("setFrame", Napi::Function::New(env, SetFrame));
+  exports.Set("setScaleMode", Napi::Function::New(env, SetScaleMode));
   exports.Set("load", Napi::Function::New(env, Load));
   exports.Set("history", Napi::Function::New(env, History));
   exports.Set("setHidden", Napi::Function::New(env, SetHidden));

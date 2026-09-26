@@ -7,6 +7,7 @@ type Emit = <K extends keyof LiveEvents>(event: K, payload: LiveEvents[K]) => vo
 interface Addon {
   create(parent: Buffer, onEvent: (type: string, a: string, b: string) => void): number
   setFrame(id: number, x: number, y: number, w: number, h: number, vw: number, vh: number): void
+  setScaleMode(mode: string): void
   load(id: number, url: string): void
   history(id: number, action: string): void
   setHidden(id: number, hidden: boolean): void
