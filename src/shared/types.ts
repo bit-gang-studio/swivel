@@ -22,8 +22,9 @@ export interface ConsoleEntry {
 
 export interface Frame {
   engine: EngineId
-  /** JPEG bytes. */
+  /** Image bytes, PNG or JPEG. */
   data: Uint8Array
+  format: 'png' | 'jpeg'
   width: number
   height: number
 }

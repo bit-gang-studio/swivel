@@ -36,7 +36,7 @@ export function LiveView({ viewport, label, engine }: { viewport: Viewport; labe
     }
     return window.swivel.on('frame', (frame) => {
       setShownEngine(frame.engine)
-      next = new Blob([frame.data as Uint8Array<ArrayBuffer>], { type: 'image/jpeg' })
+      next = new Blob([frame.data as Uint8Array<ArrayBuffer>], { type: `image/${frame.format}` })
       void draw()
     })
   }, [])

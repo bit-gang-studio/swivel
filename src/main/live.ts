@@ -114,7 +114,7 @@ export class LiveSession {
 
       this.frames = new FrameSource(page, opts.engine, opts.viewport, (f) => {
         if (gen !== this.generation) return
-        this.emit('frame', { engine: opts.engine, data: new Uint8Array(f.data), width: f.width, height: f.height })
+        this.emit('frame', { engine: opts.engine, data: new Uint8Array(f.data), format: f.format, width: f.width, height: f.height })
         // The page changed under the mouse (it loaded, or a hover effect ran), so the cursor may have too.
         if (this.mouseAt.x >= 0) this.probeCursor()
       })

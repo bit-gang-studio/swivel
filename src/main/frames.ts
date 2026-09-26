@@ -5,9 +5,14 @@ import type { Page } from 'playwright-core'
 
 export interface RawFrame {
   data: Buffer
+  format: 'png' | 'jpeg'
   width: number
   height: number
 }
+
+/** Lossless PNG while it's quick enough (sharp text); high-quality JPEG when a page makes PNG slow. */
+const PNG_BUDGET_MS = 25
+const PNG_RETRY_MS = 3000
 
 const FRAME_MS = 1000 / 60
 const IDLE_MS = 100
@@ -19,6 +24,7 @@ const IDLE_AFTER = 30 // unchanged frames before slowing down
  * Chromium: page.screencast, which already runs at 60 fps.
  * Firefox and WebKit: their screencast is capped near 25 fps, but screenshots are fast,
  * so poll screenshots at up to 60 fps, drop duplicates, and slow down while the page is idle.
+ * Frames are lossless PNG when that keeps up, so text stays crisp, and JPEG otherwise.
  */
 export class FrameSource {
   private stopped = false
@@ -43,7 +49,7 @@ export class FrameSource {
         size: this.size,
         quality: 80,
         onFrame: (f) => {
-          if (!this.stopped) this.onFrame({ data: f.data, width: f.viewportWidth, height: f.viewportHeight })
+          if (!this.stopped) this.onFrame({ data: f.data, format: 'jpeg', width: f.viewportWidth, height: f.viewportHeight })
         }
       })
     } else {
@@ -75,15 +81,35 @@ export class FrameSource {
 
   private async poll(): Promise<void> {
     let last = ''
+    let format: 'png' | 'jpeg' = 'png'
+    let pngCost = 0 // Smoothed milliseconds per PNG frame.
+    let jpegSince = 0
     while (!this.stopped) {
       const started = performance.now()
+      if (format === 'jpeg' && started - jpegSince > PNG_RETRY_MS) format = 'png' // The page may be lighter now.
       try {
-        const data = await this.page.screenshot({ type: 'jpeg', quality: 80, scale: 'device', animations: 'allow', caret: 'initial', timeout: 1500 })
+        const data = await this.page.screenshot({
+          ...(format === 'png' ? { type: 'png' as const } : { type: 'jpeg' as const, quality: 90 }),
+          scale: 'device',
+          animations: 'allow',
+          caret: 'initial',
+          timeout: 1500
+        })
+        if (format === 'png') {
+          const cost = performance.now() - started
+          pngCost = pngCost ? pngCost * 0.7 + cost * 0.3 : cost
+          if (pngCost > PNG_BUDGET_MS) {
+            format = 'jpeg'
+            jpegSince = performance.now()
+            pngCost = 0
+          }
+        }
         const hash = createHash('md5').update(data).digest('hex')
         if (hash !== last) {
           last = hash
           this.unchanged = 0
-          if (!this.stopped) this.onFrame({ data, ...this.size })
+          const frameFormat = data[0] === 0x89 ? 'png' : 'jpeg'
+          if (!this.stopped) this.onFrame({ data, format: frameFormat, ...this.size })
         } else {
           this.unchanged++
         }
