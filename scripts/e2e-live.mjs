@@ -105,8 +105,11 @@ await withApp(async ({ app, win }) => {
       const box = await win.locator('canvas.live').boundingBox()
       const s = box.height / 800
       await win.mouse.move(box.x + box.width / 2, box.y + 30)
-      await win.waitForTimeout(400)
-      const cursor = await win.locator('canvas.live').evaluate((c) => c.style.cursor)
+      let cursor = ''
+      for (let i = 0; i < 20 && cursor !== 'pointer'; i++) {
+        await win.waitForTimeout(150)
+        cursor = await win.locator('canvas.live').evaluate((c) => c.style.cursor)
+      }
       if (cursor !== 'pointer') console.log(`${tag} cursor over button is "${cursor}", expected pointer`)
       pointer = cursor === 'pointer'
       await win.mouse.click(box.x + box.width / 2, box.y + 20)

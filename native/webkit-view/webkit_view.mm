@@ -3,6 +3,8 @@
 // The web view fills a clipping container at the on-screen size and is scaled so the page lays out
 // at exactly the emulated viewport width. Scaling uses WKWebView's view scale, as Safari's
 // Responsive Design Mode does, because pageZoom can't go below 0.5.
+// Verify changes here with the screenshots from the Live view check workflow: page-reported
+// sizes have passed while the picture was wrong.
 // Console output and navigation events go back to JavaScript through a thread-safe function.
 
 #import <AppKit/AppKit.h>
@@ -136,16 +138,20 @@ static Napi::Value SetFrame(const Napi::CallbackInfo& info) {
   if (!v) return info.Env().Undefined();
   double x = info[1].As<Napi::Number>().DoubleValue(), y = info[2].As<Napi::Number>().DoubleValue();
   double w = info[3].As<Napi::Number>().DoubleValue(), h = info[4].As<Napi::Number>().DoubleValue();
-  double vw = info[5].As<Napi::Number>().DoubleValue();  // Viewport height follows from the zoom.
+  double vw = info[5].As<Napi::Number>().DoubleValue(), vh = info[6].As<Napi::Number>().DoubleValue();
   NSView* parent = v.container.superview;
   double top = parent.isFlipped ? y : parent.bounds.size.height - y - h;
   v.container.frame = NSMakeRect(x, top, w, h);
-  v.web.frame = v.container.bounds;
-  double scale = vw > 0 ? w / vw : 1;  // Layout width becomes w / scale = the viewport width.
+  double scale = vw > 0 ? w / vw : 1;
   SEL setViewScale = NSSelectorFromString(@"_setViewScale:");
   if ([v.web respondsToSelector:setViewScale]) {
+    // The web view is the full viewport size, so the page lays out at the viewport width. View
+    // scale shrinks its drawing to fit, anchored top-left, and the container clips the rest.
+    double top = v.container.isFlipped ? 0 : h - vh;
+    v.web.frame = NSMakeRect(0, top, vw, vh);
     ((void (*)(id, SEL, CGFloat))objc_msgSend)(v.web, setViewScale, scale);
   } else {
+    v.web.frame = v.container.bounds;
     v.web.pageZoom = scale;  // Fallback; limited to 0.5 and up.
   }
   return info.Env().Undefined();
