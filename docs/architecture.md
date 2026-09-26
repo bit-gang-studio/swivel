@@ -11,22 +11,25 @@
 
 The renderer never touches Playwright directly. It calls `window.swivel.*`, which goes over IPC to the main process.
 
-## Engines
+## Engines and live view
 
-`src/main/engines.ts` launches Chromium, Firefox and WebKit with `playwright-core`, one browser per engine, reused across requests. Each request gets a fresh browser context with the chosen viewport and colour scheme.
+`src/main/live.ts` runs one live page per window. Frames stream out with Playwright's `page.screencast`, and mouse, wheel and key input is replayed into the page in order. One headless browser per engine is reused.
 
-Browsers are not bundled yet. In development they come from `npm run browsers`, which downloads them to Playwright's shared cache. Shipping browsers with the packaged app is an open task.
+**Decision (spike, Sep 2026):** use screencast for all three engines. No snapshot fallback needed.
 
-## Snapshot mode vs live mode
+Measured frames per second and click-to-screen lag, 1280×800 (`scripts/bench-live.mjs`):
 
-Today the app runs in **snapshot mode**: load the page, take a screenshot, return it with console output.
+| | Chrome | Firefox | WebKit |
+|---|---|---|---|
+| Mac (M-series laptop) | 60 fps, 70 ms | 22 fps, 125 ms | 19 fps, 60 ms |
+| Linux (CI) | 60 fps, 100 ms | 24 fps, 90 ms | 31 fps, 100 ms |
+| Windows (CI) | 60 fps, 135 ms | 11 fps, 180 ms | 19 fps, 120 ms |
 
-The goal is **live mode**: a clickable view of every engine. Playwright has no built-in live stream for Firefox or WebKit, so this needs a spike. Options to test:
+Firefox and WebKit are fine for clicking and scrolling but choppy for animations.
 
-1. Stream frames. Use CDP screencast for Chromium, and a fast screenshot loop for Firefox and WebKit. Forward mouse and keyboard input with Playwright's input APIs.
-2. Use Electron's own Chromium for the Chrome engine as a real, native view, and stream only Firefox and WebKit.
+Browsers are not bundled yet. In development they come from `npm run browsers`.
 
-If live mode for Firefox and WebKit is too slow, compare mode falls back to snapshots that refresh on change.
+`scripts/e2e-live.mjs` drives the built app and checks click, type and scroll in every engine. The manual "Live view check" workflow runs both scripts on all three OSes.
 
 ## Naming engines
 

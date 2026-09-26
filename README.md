@@ -4,18 +4,17 @@ A desktop dev browser for checking your site across browser engines and screen s
 
 Swivel feels like a normal browser, but the engine is a switch. Load a page once, then flip between Chrome, Firefox and Safari, or view them side by side.
 
-> **Status:** early development. Today Swivel loads a page in one engine and shows a screenshot and the console. Live, clickable views are the next milestone.
+> **Status:** early development.
 
 ## Features
 
 **Working now**
-- Switch engines: Chromium, Firefox and WebKit, powered by [Playwright](https://playwright.dev)
+- Live, clickable pages in Chromium, Firefox and WebKit, powered by [Playwright](https://playwright.dev)
 - Phone, tablet and desktop sizes
 - Light and dark mode
 - Console messages tagged by engine
 
 **Planned**
-- Live, clickable pages in every engine
 - Compare mode: engines side by side with synced scrolling and clicks
 - Highlighted differences between engines
 - Inspect: compare an element's styles across engines
