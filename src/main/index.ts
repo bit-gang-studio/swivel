@@ -6,6 +6,9 @@ import { EngineHost, nativeEngines } from './host'
 import { selfTest } from './selftest'
 import type { InputEvent, LiveOptions, ViewRect } from '../shared/types'
 
+// Electron's own security warnings would show up in the console of every page viewed in Chrome.
+process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = 'true'
+
 const here = fileURLToPath(new URL('.', import.meta.url))
 const sessions = new Map<number, EngineHost>()
 

@@ -44,6 +44,18 @@ function within<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
 
 // Long enough for a slow engine right after a page load, short enough that a stuck call can't freeze input.
 const INPUT_TIMEOUT = 5000
+
+/** Runs in the page: the cursor the browser would show at a point. */
+function pickCursor({ x, y }: { x: number; y: number }): string {
+  const el = document.elementFromPoint(x, y)
+  if (!el) return 'default'
+  let cursor = getComputedStyle(el).cursor
+  if (cursor.includes('url(')) cursor = cursor.split(',').pop()!.trim() // Custom images can't cross over; use the fallback.
+  if (cursor !== 'auto') return cursor
+  if (el.closest('a[href], [role="link"]')) return 'pointer'
+  if (el.closest('textarea, [contenteditable=""], [contenteditable="true"], input:not([type=button], [type=submit], [type=reset], [type=checkbox], [type=radio], [type=range], [type=color], [type=file], [type=image])')) return 'text'
+  return 'default'
+}
 const message = (err: unknown) => (err instanceof Error ? err.message.split('\n')[0] : String(err))
 // Errors from a navigation that a newer one replaced. Not worth showing.
 const superseded = (err: unknown) => /interrupted by another navigation|NS_BINDING_ABORTED|Navigation.*aborted|frame was detached|Target.*closed|has been closed/i.test(message(err))
@@ -168,6 +180,28 @@ export class LiveSession {
     if (x === this.mouseAt.x && y === this.mouseAt.y) return
     this.mouseAt = { x, y }
     await page.mouse.move(x, y)
+    this.probeCursor()
+  }
+
+  private cursorTimer?: ReturnType<typeof setTimeout>
+  private lastCursor = ''
+
+  /**
+   * Streamed pages can't set the app's cursor, so ask the page which cursor applies under the
+   * mouse. Throttled, so a moving mouse costs at most one call every 40 ms.
+   */
+  private probeCursor(): void {
+    if (this.cursorTimer) return
+    this.cursorTimer = setTimeout(async () => {
+      this.cursorTimer = undefined
+      const page = this.page
+      if (!page) return
+      const cursor = await within(page.evaluate(pickCursor, this.mouseAt), 300, this.lastCursor)
+      if (cursor !== this.lastCursor) {
+        this.lastCursor = cursor
+        this.emit('cursor', cursor)
+      }
+    }, 40)
   }
 
   private async replay(e: InputEvent): Promise<void> {
@@ -198,6 +232,7 @@ export class LiveSession {
     this.frames = undefined
     this.pending = []
     this.mouseAt = { x: -1, y: -1 }
+    this.lastCursor = ''
     const context = this.context
     this.context = undefined
     this.page = undefined

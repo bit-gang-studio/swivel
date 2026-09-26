@@ -38,6 +38,8 @@ export interface LiveEvents {
   url: string
   error: string
   loading: boolean
+  /** CSS cursor for the point under the mouse, for streamed engines. */
+  cursor: string
 }
 
 /** The page area's position in the window, in CSS pixels of the app window. */

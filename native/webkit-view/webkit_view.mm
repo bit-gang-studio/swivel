@@ -1,9 +1,8 @@
 // Embeds WKWebView, the engine Safari uses, inside an Electron window.
 //
-// The web view sits in a container whose frame is the on-screen size and whose bounds are the
-// emulated viewport size, so AppKit scales it: the page lays out at exactly the viewport width
-// while fitting the space Swivel gives it. Console output and navigation events go back to
-// JavaScript through a thread-safe function.
+// The web view fills a clipping container at the on-screen size. pageZoom scales the page so it
+// lays out at exactly the emulated viewport width while fitting the space Swivel gives it.
+// Console output and navigation events go back to JavaScript through a thread-safe function.
 
 #import <AppKit/AppKit.h>
 #import <WebKit/WebKit.h>
@@ -116,6 +115,7 @@ static Napi::Value Create(const Napi::CallbackInfo& info) {
 
   v.container = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 100, 100)];
   v.container.wantsLayer = YES;
+  v.container.layer.masksToBounds = YES;  // Never draw outside the page area.
   v.container.hidden = YES;
   v.web = [[WKWebView alloc] initWithFrame:v.container.bounds configuration:config];
   v.web.navigationDelegate = v;
@@ -138,8 +138,8 @@ static Napi::Value SetFrame(const Napi::CallbackInfo& info) {
   NSView* parent = v.container.superview;
   double top = parent.isFlipped ? y : parent.bounds.size.height - y - h;
   v.container.frame = NSMakeRect(x, top, w, h);
-  v.container.bounds = NSMakeRect(0, 0, vw, vh);  // Frame vs bounds makes AppKit scale the page.
-  v.web.frame = NSMakeRect(0, 0, vw, vh);
+  v.web.frame = v.container.bounds;
+  v.web.pageZoom = vw > 0 ? w / vw : 1;  // Layout width becomes w / zoom = the viewport width.
   return info.Env().Undefined();
 }
 

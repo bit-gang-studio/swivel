@@ -31,7 +31,7 @@ export class NativeChrome {
       webPreferences: { partition: 'swivel-chrome', sandbox: true, contextIsolation: true, nodeIntegration: false }
     })
     const wc = view.webContents
-    wc.on('console-message', (e) => this.emit('console', { engine: 'chromium', type: LEVELS[e.level] ?? 'log', text: e.message }))
+    wc.on('console-message', (e) => this.emit('console', { engine: 'chromium', type: LEVELS[e.level] ?? 'log', text: e.message.replace(/%c/g, '') }))
     wc.on('did-start-loading', () => this.emit('loading', true))
     wc.on('did-stop-loading', () => this.emit('loading', false))
     wc.on('did-navigate', (_e, url) => {

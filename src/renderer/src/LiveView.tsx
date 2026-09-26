@@ -8,6 +8,8 @@ export function LiveView({ viewport, label, engine }: { viewport: Viewport; labe
   const canvas = useRef<HTMLCanvasElement>(null)
   // Which engine painted the frame on screen. Until the chosen engine sends a frame, the old one is faded.
   const [shownEngine, setShownEngine] = useState<EngineId | null>(null)
+  const [cursor, setCursor] = useState('default')
+  useEffect(() => window.swivel.on('cursor', setCursor), [])
   const pendingMove = useRef<{ x: number; y: number } | null>(null)
 
   useEffect(() => {
@@ -72,6 +74,7 @@ export function LiveView({ viewport, label, engine }: { viewport: Viewport; labe
     <canvas
       ref={canvas}
       className={shownEngine === engine ? 'live' : 'live stale'}
+      style={{ cursor }}
       tabIndex={0}
       aria-label={`Live page in ${label}`}
       width={viewport.width}

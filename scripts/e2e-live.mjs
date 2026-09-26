@@ -13,7 +13,7 @@ const SLOW = `http://127.0.0.1:${slow.address().port}/`
 
 const PAGE = 'data:text/html,' + encodeURIComponent(`<!doctype html>
 <body style="margin:0;height:4000px">
-<button id=b style="position:fixed;left:0;top:0;width:100%;height:300px;font-size:40px">click me</button>
+<button id=b style="position:fixed;left:0;top:0;width:100%;height:300px;font-size:40px;cursor:pointer">click me</button>
 <input id=i style="position:fixed;left:0;top:320px;width:100%;height:100px;font-size:40px">
 <script>
 console.log('ready');
@@ -47,6 +47,7 @@ await withApp(async ({ app, win }) => {
     const ready = await seen(tag, 'ready', 60_000)
     await win.waitForTimeout(500)
     let clicked, typed, scrolled
+    let pointer = true // Native engines show the cursor themselves.
     const natives = await win.evaluate(() => window.swivel.nativeEngines)
     if (tag === 'Safari' && natives.includes('webkit')) {
       // Safari is a native WKWebView: input goes straight to it from macOS. Drive the page with
@@ -103,6 +104,11 @@ await withApp(async ({ app, win }) => {
       // Streamed engines: input goes through Swivel's canvas.
       const box = await win.locator('canvas.live').boundingBox()
       const s = box.height / 800
+      await win.mouse.move(box.x + box.width / 2, box.y + 30)
+      await win.waitForTimeout(400)
+      const cursor = await win.locator('canvas.live').evaluate((c) => c.style.cursor)
+      if (cursor !== 'pointer') console.log(`${tag} cursor over button is "${cursor}", expected pointer`)
+      pointer = cursor === 'pointer'
       await win.mouse.click(box.x + box.width / 2, box.y + 20)
       clicked = await seen(tag, 'clicked')
       await win.mouse.click(box.x + box.width / 2, box.y + 370 * s)
@@ -125,11 +131,11 @@ await withApp(async ({ app, win }) => {
     const escaped = await seen(tag, marker, 10_000)
     const escapeMs = escaped ? Date.now() - t0 : -1
 
-    results.push({ engine: tag, ready, clicked, typed, scrolled, leftSlowPageMs: escapeMs })
+    results.push({ engine: tag, ready, clicked, typed, scrolled, pointer, leftSlowPageMs: escapeMs })
   }
 
   if (process.env.SHOT) await win.screenshot({ path: process.env.SHOT })
-  const failed = results.some((r) => !r.ready || !r.clicked || !r.typed || !r.scrolled || r.leftSlowPageMs < 0)
+  const failed = results.some((r) => !r.ready || !r.clicked || !r.typed || !r.scrolled || !r.pointer || r.leftSlowPageMs < 0)
   if (failed) {
     console.log('address:', await win.getByLabel('Address').inputValue())
     console.log('status:', await win.locator('.status').allInnerTexts())
