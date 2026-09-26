@@ -6,6 +6,8 @@
   --muted: #5f5e58;
   --accent: #2952cc;
   --error: #9a3412;
+  --hover: rgba(0, 0, 0, 0.06);
+  --pressed: rgba(0, 0, 0, 0.1);
   font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
   color: var(--text);
 }
@@ -19,6 +21,8 @@
     --muted: #a8a69e;
     --accent: #8aa4f0;
     --error: #f0a07a;
+    --hover: rgba(255, 255, 255, 0.08);
+    --pressed: rgba(255, 255, 255, 0.14);
   }
 }
 
@@ -30,16 +34,19 @@ button, input, select { font: inherit; color: inherit; }
 .app { display: grid; grid-template-rows: auto 1fr; height: 100vh; }
 .app.console-open { grid-template-rows: auto 1fr 200px; }
 
-.toolbar { position: relative; display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--surface); border-bottom: 1px solid var(--line); }
-.toolbar button, .toolbar select { height: 34px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); cursor: pointer; }
-.address { flex: 1; }
-.address input { width: 100%; height: 34px; padding: 0 14px; border: 1px solid var(--line); border-radius: 17px; background: var(--bg); font-family: ui-monospace, monospace; font-size: 13px; }
+.toolbar { position: relative; display: flex; align-items: center; gap: 4px; height: 40px; padding: 0 8px; background: var(--surface); border-bottom: 1px solid var(--line); font-size: 13px; }
+.toolbar button, .toolbar select { height: 28px; border: none; border-radius: 14px; background: transparent; cursor: pointer; }
+.toolbar button:hover, .toolbar select:hover { background: var(--hover); }
+.toolbar button.icon { position: relative; width: 28px; padding: 0; display: grid; place-items: center; flex-shrink: 0; }
+.toolbar button.icon[aria-pressed='true'] { background: var(--pressed); }
+.address { flex: 1; margin: 0 4px; }
+.address input { width: 100%; height: 30px; padding: 0 14px; border: 1px solid transparent; border-radius: 15px; background: var(--bg); font-size: 13px; outline: none; }
+.address input:focus { border-color: var(--accent); background: var(--surface); }
 
-.segmented { display: flex; padding: 3px; gap: 2px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
-.segmented button { height: 28px; border: none; background: transparent; }
+.segmented { display: flex; padding: 2px; gap: 2px; border-radius: 14px; background: var(--bg); flex-shrink: 0; }
+.segmented button { height: 24px; padding: 0 10px; border-radius: 12px; font-size: 12px; }
 .segmented button[aria-pressed='true'] { background: var(--text); color: var(--bg); }
-
-.check { display: flex; align-items: center; gap: 6px; font-size: 14px; }
+.toolbar select.size { padding: 0 8px; font-size: 12px; background: var(--bg); }
 
 .viewport { position: relative; overflow: hidden; padding: 16px; display: flex; align-items: center; justify-content: center; min-height: 0; }
 .viewport.fill { padding: 0; }
@@ -67,6 +74,4 @@ button, input, select { font: inherit; color: inherit; }
 .native-area { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
 .native-box { background: #fff; border-radius: 6px; }
 
-.console-toggle { display: flex; align-items: center; gap: 6px; }
-.console-toggle[aria-pressed='true'] { background: var(--text); color: var(--bg); border-color: var(--text); }
-.badge { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--error); color: #fff; font-size: 11px; line-height: 18px; text-align: center; }
+.badge { position: absolute; top: -2px; right: -4px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--error); color: #fff; font-size: 10px; line-height: 16px; text-align: center; }

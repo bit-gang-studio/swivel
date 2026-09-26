@@ -4,6 +4,22 @@ import { ENGINES, SIZES, engineLabel } from './engines'
 import { LiveView } from './LiveView'
 import { NativeView } from './NativeView'
 
+/** 16px stroke icons, drawn in the current text colour. */
+function Icon({ d }: { d: string }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d={d} />
+    </svg>
+  )
+}
+const ICONS = {
+  back: 'M19 12H5M12 19l-7-7 7-7',
+  forward: 'M5 12h14M12 5l7 7-7 7',
+  reload: 'M21 12a9 9 0 1 1-2.6-6.4L21 8M21 3v5h-5',
+  moon: 'M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z',
+  console: 'M4 17l6-5-6-5M12 19h8'
+}
+
 const platform = window.swivel.platform
 
 function normalizeUrl(input: string): string {
@@ -114,9 +130,15 @@ export function App() {
   return (
     <div className={consoleOpen ? 'app console-open' : 'app'}>
       <form className="toolbar" onSubmit={onSubmit}>
-        <button type="button" aria-label="Back" onClick={() => void window.swivel.history('back')}>←</button>
-        <button type="button" aria-label="Forward" onClick={() => void window.swivel.history('forward')}>→</button>
-        <button type="button" aria-label="Reload" onClick={() => void window.swivel.history('reload')}>⟳</button>
+        <button type="button" className="icon" aria-label="Back" title="Back" onClick={() => void window.swivel.history('back')}>
+          <Icon d={ICONS.back} />
+        </button>
+        <button type="button" className="icon" aria-label="Forward" title="Forward" onClick={() => void window.swivel.history('forward')}>
+          <Icon d={ICONS.forward} />
+        </button>
+        <button type="button" className="icon" aria-label="Reload" title="Reload" onClick={() => void window.swivel.history('reload')}>
+          <Icon d={ICONS.reload} />
+        </button>
         <label className="address">
           <span className="sr-only">Address</span>
           <input
@@ -139,7 +161,7 @@ export function App() {
         </div>
         <label>
           <span className="sr-only">Screen size</span>
-          <select value={String(size)} onChange={(e) => setSize(e.target.value === 'fill' ? 'fill' : Number(e.target.value))}>
+          <select className="size" value={String(size)} onChange={(e) => setSize(e.target.value === 'fill' ? 'fill' : Number(e.target.value))}>
             <option value="fill">Fill window</option>
             {SIZES.map((s, i) => (
               <option key={s.label} value={i}>
@@ -148,13 +170,12 @@ export function App() {
             ))}
           </select>
         </label>
-        <label className="check">
-          <input type="checkbox" checked={dark} onChange={(e) => setDark(e.target.checked)} />
-          Dark
-        </label>
-        <button type="button" className="console-toggle" aria-pressed={consoleOpen} onClick={toggleConsole}>
-          Console
-          {unseenErrors > 0 && <span className="badge" aria-label={`${unseenErrors} new errors`}>{unseenErrors}</span>}
+        <button type="button" className="icon" aria-label="Dark mode" title="Dark mode" aria-pressed={dark} onClick={() => setDark(!dark)}>
+          <Icon d={ICONS.moon} />
+        </button>
+        <button type="button" className="icon console-toggle" aria-label="Console" title="Console" aria-pressed={consoleOpen} onClick={toggleConsole}>
+          <Icon d={ICONS.console} />
+          {unseenErrors > 0 && <span className="badge" aria-label={`${unseenErrors} new errors`}>{unseenErrors > 99 ? '99+' : unseenErrors}</span>}
         </button>
         <div className={loading ? 'progress on' : 'progress'} role="progressbar" aria-label="Page loading" aria-busy={loading} />
       </form>
