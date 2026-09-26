@@ -14,6 +14,8 @@ addEventListener('scroll',()=>{ if(!window.s){window.s=1;console.log('scrolled')
 </script></body>`)
 
 const app = await electron.launch({ args: ['.'] })
+app.process().stderr?.on('data', (d) => process.env.DEBUG_APP && process.stderr.write(d))
+app.process().stdout?.on('data', (d) => process.env.DEBUG_APP && process.stdout.write(d))
 const win = await app.firstWindow()
 await win.waitForSelector('canvas.live')
 
@@ -53,6 +55,12 @@ for (const name of [/^Chrome$/, /^Firefox$/, /^(Safari|WebKit)$/]) {
 }
 
 if (process.env.SHOT) await win.screenshot({ path: process.env.SHOT })
+const failed = results.some((r) => !r.ready || !r.clicked || !r.typed || !r.scrolled)
+if (failed) {
+  console.log('address:', await win.getByLabel('Address').inputValue())
+  console.log('status:', await win.locator('.status').allInnerTexts())
+  console.log('console:', await win.locator('.console').innerText())
+}
 await app.close()
 console.table(results)
-if (results.some((r) => !r.ready || !r.clicked || !r.typed || !r.scrolled)) process.exit(1)
+if (failed) process.exit(1)

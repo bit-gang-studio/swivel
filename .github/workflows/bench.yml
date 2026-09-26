@@ -25,6 +25,10 @@ jobs:
       - name: App test (Linux)
         if: runner.os == 'Linux'
         run: xvfb-run -a node scripts/e2e-live.mjs
+        env:
+          DEBUG_APP: 1
       - name: App test
         if: runner.os != 'Linux'
         run: node scripts/e2e-live.mjs
+        env:
+          DEBUG_APP: 1
