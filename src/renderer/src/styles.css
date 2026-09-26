@@ -1,0 +1,54 @@
+:root {
+  --bg: #f4f3ef;
+  --surface: #ffffff;
+  --line: #d9d7d0;
+  --text: #1c1c1a;
+  --muted: #5f5e58;
+  --accent: #2952cc;
+  --error: #9a3412;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  color: var(--text);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1b1b19;
+    --surface: #242422;
+    --line: #3a3935;
+    --text: #ecebe6;
+    --muted: #a8a69e;
+    --accent: #8aa4f0;
+    --error: #f0a07a;
+  }
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); }
+button, input, select { font: inherit; color: inherit; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+.app { display: grid; grid-template-rows: auto 1fr 200px; height: 100vh; }
+
+.toolbar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--surface); border-bottom: 1px solid var(--line); }
+.toolbar button, .toolbar select { height: 34px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); cursor: pointer; }
+.address { flex: 1; }
+.address input { width: 100%; height: 34px; padding: 0 14px; border: 1px solid var(--line); border-radius: 17px; background: var(--bg); font-family: ui-monospace, monospace; font-size: 13px; }
+
+.segmented { display: flex; padding: 3px; gap: 2px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+.segmented button { height: 28px; border: none; background: transparent; }
+.segmented button[aria-pressed='true'] { background: var(--text); color: var(--bg); }
+
+.check { display: flex; align-items: center; gap: 6px; font-size: 14px; }
+
+.viewport { overflow: auto; padding: 16px; display: flex; justify-content: center; align-items: flex-start; }
+.viewport img { max-width: 100%; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+.status { color: var(--muted); }
+.status.error { color: var(--error); }
+
+.console { overflow: auto; border-top: 1px solid var(--line); background: var(--surface); padding: 8px 14px; font-family: ui-monospace, monospace; font-size: 12.5px; }
+.console h2 { margin: 0 0 6px; font: 600 13px system-ui, sans-serif; }
+.console ul { list-style: none; margin: 0; padding: 0; }
+.console li { padding: 5px 0; border-bottom: 1px solid var(--line); }
+.console li.error { color: var(--error); }
+.console .tag { display: inline-block; min-width: 64px; margin-right: 8px; padding: 1px 6px; border-radius: 4px; background: var(--bg); text-align: center; font-size: 11px; }
+.console .empty { color: var(--muted); margin: 0; }

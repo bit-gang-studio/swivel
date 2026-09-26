@@ -1,0 +1,44 @@
+{
+  "name": "swivel",
+  "version": "0.1.0",
+  "description": "A desktop dev browser for testing your site across browser engines and screen sizes.",
+  "license": "MIT",
+  "author": "Bit Gang Studio",
+  "homepage": "https://github.com/bit-gang-studio/swivel",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bit-gang-studio/swivel.git"
+  },
+  "main": "./out/main/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "test": "vitest run",
+    "browsers": "playwright install chromium firefox webkit",
+    "dist": "npm run build && electron-builder",
+    "dist:mac": "npm run build && electron-builder --mac",
+    "dist:win": "npm run build && electron-builder --win",
+    "dist:linux": "npm run build && electron-builder --linux"
+  },
+  "dependencies": {
+    "playwright-core": "1.63.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^5.2.0",
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "playwright": "1.63.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "typescript": "^6.0.3",
+    "vite": "^7.3.6",
+    "vitest": "^5.0.2"
+  }
+}

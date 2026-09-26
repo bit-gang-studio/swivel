@@ -1,0 +1,22 @@
+appId: studio.bitgang.swivel
+productName: Swivel
+directories:
+  output: release
+  buildResources: resources
+files:
+  - out/**
+  - package.json
+asarUnpack:
+  - node_modules/playwright-core/**
+mac:
+  category: public.app-category.developer-tools
+  target: [dmg, zip]
+win:
+  target: [nsis]
+linux:
+  category: Development
+  target: [AppImage, deb]
+publish:
+  provider: github
+  owner: bit-gang-studio
+  repo: swivel
