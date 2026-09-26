@@ -5,6 +5,7 @@ import { _electron as electron } from 'playwright'
 
 export async function withApp(fn, { timeoutMs = 240_000 } = {}) {
   const app = await electron.launch({ args: ['.'], env: { ...process.env, SWIVEL_HIDDEN: '1' }, timeout: 60_000 })
+  const proc = app.process() // Unavailable after app.close(), so keep it now.
   let code = 0
   const timer = setTimeout(() => {
     console.error(`Timed out after ${timeoutMs} ms`)
@@ -13,7 +14,7 @@ export async function withApp(fn, { timeoutMs = 240_000 } = {}) {
   async function shutdown(exitCode) {
     clearTimeout(timer)
     await Promise.race([app.close().catch(() => {}), new Promise((r) => setTimeout(r, 5000))])
-    if (app.process().exitCode === null) app.process().kill('SIGTERM')
+    if (proc.exitCode === null) proc.kill('SIGTERM')
     process.exit(exitCode)
   }
   process.once('SIGINT', () => void shutdown(130))

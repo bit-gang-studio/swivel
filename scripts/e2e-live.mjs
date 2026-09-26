@@ -50,8 +50,9 @@ await withApp(async ({ app, win }) => {
     if (tag === 'Chrome') {
       // Chrome is a native view: real input goes straight to it, so inject input through
       // Electron and check its console reaches Swivel.
-      const page = app.windows().find((p) => p !== win && p.url().startsWith('data:'))
-      const width = await page.evaluate(() => innerWidth)
+      const width = await app.evaluate(({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows()[0].contentView.children[0].webContents.executeJavaScript('innerWidth')
+      )
       if (width !== 1280) console.log(`Chrome innerWidth is ${width}, expected 1280`)
       // Inject input the way the OS does, through Electron, in view coordinates.
       const send = (events) =>
