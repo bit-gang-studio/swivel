@@ -48,18 +48,33 @@ await withApp(async ({ app, win }) => {
     await win.waitForTimeout(500)
     let clicked, typed, scrolled
     if (tag === 'Chrome') {
-      // Chrome is a native view: real input goes straight to it, so drive its page directly
-      // and check its console reaches Swivel.
+      // Chrome is a native view: real input goes straight to it, so inject input through
+      // Electron and check its console reaches Swivel.
       const page = app.windows().find((p) => p !== win && p.url().startsWith('data:'))
       const width = await page.evaluate(() => innerWidth)
       if (width !== 1280) console.log(`Chrome innerWidth is ${width}, expected 1280`)
-      await page.click('#b')
+      // Inject input the way the OS does, through Electron, in view coordinates.
+      const send = (events) =>
+        app.evaluate(async ({ BrowserWindow }, events) => {
+          const view = BrowserWindow.getAllWindows()[0].contentView.children[0]
+          const scale = view.getBounds().width / 1280
+          for (const e of events) {
+            const ev = { ...e }
+            if ('x' in ev) Object.assign(ev, { x: Math.round(ev.x * scale), y: Math.round(ev.y * scale) })
+            view.webContents.sendInputEvent(ev)
+            await new Promise((r) => setTimeout(r, 30))
+          }
+        }, events)
+      await send([{ type: 'mouseDown', x: 640, y: 20, button: 'left', clickCount: 1 }, { type: 'mouseUp', x: 640, y: 20, button: 'left', clickCount: 1 }])
       clicked = await seen(tag, 'clicked')
-      await page.click('#i')
-      await page.keyboard.type('Hi')
+      await send([
+        { type: 'mouseDown', x: 640, y: 370, button: 'left', clickCount: 1 },
+        { type: 'mouseUp', x: 640, y: 370, button: 'left', clickCount: 1 },
+        { type: 'char', keyCode: 'H' },
+        { type: 'char', keyCode: 'i' }
+      ])
       typed = await seen(tag, 'typed')
-      await page.mouse.move(200, 600)
-      await page.mouse.wheel(0, 600)
+      await send([{ type: 'mouseWheel', x: 640, y: 600, deltaX: 0, deltaY: -600 }])
       scrolled = await seen(tag, 'scrolled')
     } else {
       // Streamed engines: input goes through Swivel's canvas.
