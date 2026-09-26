@@ -14,7 +14,7 @@ export function FindBar({ onClose, focusToken, engine }: { onClose: () => void; 
 
   // Search as you type, and again in a newly chosen engine once its page is up.
   useEffect(() => {
-    const t = setTimeout(() => void window.swivel.find({ text, backwards: false, restart: true }), 120)
+    const t = setTimeout(() => void window.swivel.find({ text, backwards: false, restart: true }), 30)
     return () => clearTimeout(t)
   }, [text, engine])
 
