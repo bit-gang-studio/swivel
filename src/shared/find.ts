@@ -13,19 +13,30 @@ export interface FindResult {
 }
 
 /**
- * Runs inside the page (it must stay self-contained): counts matches, moves the selection to
- * the next one with window.find (supported by Chromium, Firefox and WebKit), and works out which
- * match is selected. An empty text clears the search.
+ * Runs inside the page (it must stay self-contained): finds every match, selects the next or
+ * previous one and scrolls it into view. The current match index is kept on window, so it works
+ * the same in every engine (window.find skips some text, such as button labels, in Firefox).
+ * An empty text clears the search.
  */
 export function findInPage({ text, backwards, restart }: FindRequest): FindResult {
+  const state = ((window as unknown as { __swivelFind?: { text: string; index: number } }).__swivelFind ??= { text: '', index: -1 })
   const selection = getSelection()
   if (!text) {
     selection?.removeAllRanges()
+    state.text = ''
+    state.index = -1
     return { matches: 0, active: 0 }
   }
   const needle = text.toLowerCase()
   const ranges: Range[] = []
-  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+    // Skip text nobody can see.
+    acceptNode: (n) => {
+      const el = n.parentElement
+      if (!el || /^(SCRIPT|STYLE|NOSCRIPT|TEMPLATE)$/.test(el.tagName)) return NodeFilter.FILTER_REJECT
+      return el.getClientRects().length ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT
+    }
+  })
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
     const hay = (node.nodeValue ?? '').toLowerCase()
     for (let i = hay.indexOf(needle); i !== -1; i = hay.indexOf(needle, i + needle.length)) {
@@ -37,17 +48,17 @@ export function findInPage({ text, backwards, restart }: FindRequest): FindResul
   }
   if (!ranges.length) {
     selection?.removeAllRanges()
+    state.text = text
+    state.index = -1
     return { matches: 0, active: 0 }
   }
-  if (restart) selection?.removeAllRanges()
-  // window.find is non-standard but present in all three engines.
-  const find = (window as unknown as { find: (...args: unknown[]) => boolean }).find
-  find.call(window, text, false, backwards, true, false, false, false)
-  const current = selection && selection.rangeCount ? selection.getRangeAt(0) : null
-  let active = 0
-  if (current) {
-    active = ranges.findIndex((r) => r.compareBoundaryPoints(Range.START_TO_START, current) === 0) + 1
-    if (!active) active = ranges.filter((r) => r.compareBoundaryPoints(Range.START_TO_START, current) < 0).length + 1
-  }
-  return { matches: ranges.length, active: Math.min(active, ranges.length) }
+  if (restart || state.text !== text || state.index < 0) state.index = backwards ? ranges.length - 1 : 0
+  else state.index = (state.index + (backwards ? -1 : 1) + ranges.length) % ranges.length
+  state.text = text
+  const range = ranges[state.index]
+  selection?.removeAllRanges()
+  selection?.addRange(range)
+  const box = range.getBoundingClientRect()
+  if (box.top < 0 || box.bottom > innerHeight) window.scrollBy({ top: box.top - innerHeight / 2 })
+  return { matches: ranges.length, active: state.index + 1 }
 }
