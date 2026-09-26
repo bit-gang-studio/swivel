@@ -21,7 +21,12 @@ Each window has an `EngineHost` (`src/main/host.ts`) that routes to one of three
 | Safari / WebKit | Native | Streamed | Apple's WKWebView via an N-API addon in `native/webkit-view` (`native-safari.ts`) |
 | Firefox | Streamed | Streamed | Playwright, frames drawn on a canvas (`live.ts`, `frames.ts`) |
 
-**Native** views are laid over the page area, so they are real-time, like a normal browser. The page lays out at the emulated viewport size and is scaled to fit. Chrome emulation uses the DevTools protocol, but not while a test runner is attached over remote debugging, because that crashes Electron. Enabling emulation before a page commits also crashes it, so a blank page loads first.
+**Native** views are laid over the page area, so they are real-time, like a normal browser. The page lays out at the viewport width and is scaled to fit:
+
+- Chrome: the view fits the page area and zoom sets the layout width. Zoom is per site, so the view starts with the right default zoom and it is reapplied after navigation. On Windows a site's first visit can briefly reflow. Dark mode uses the DevTools protocol, but not while a test runner is attached over remote debugging (that crashes Electron).
+- Safari: the WKWebView is full viewport size inside a clipping container whose bounds are the viewport size, so AppKit scales it. Page zoom stops at 0.5, so it isn't used.
+
+A DevTools size override draws at full size outside the view, so it isn't used either.
 
 **Streamed** engines run headless in Playwright. Chromium-style screencast caps Firefox and WebKit near 25 fps, so they poll screenshots at up to 60 fps, drop duplicates, and slow down when idle. Input is replayed in order, with moves and wheel events coalesced. No browser call can block navigation or input. All engines prewarm at launch.
 
@@ -31,6 +36,7 @@ No embeddable Firefox exists for desktop, so it stays streamed.
 
 - `scripts/e2e-live.mjs`: drives the built app in every engine. Click, type, scroll, and leaving a page that never finishes loading.
 - `SWIVEL_SELFTEST=1 npx electron .`: checks native engines' size and dark mode with no test runner attached.
+- `SWIVEL_VISUAL=<dir> npx electron .`: real screen captures of every engine and size. Page-reported sizes have passed while the picture was wrong, so look at these after any layout change.
 - `scripts/bench-live.mjs`, `diag-lag.mjs`, `diag-scroll.mjs`: frame rate and lag.
 - The manual "Live view check" workflow runs these on all three OSes. Run app tests in CI rather than locally: they launch Electron windows.
 
