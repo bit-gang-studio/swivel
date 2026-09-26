@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { closeAllBrowsers, prewarmBrowsers } from './live'
 import { EngineHost, nativeEngines } from './host'
 import { selfTest } from './selftest'
+import { visualCheck } from './visual'
 import type { InputEvent, LiveOptions, ViewRect } from '../shared/types'
 
 // Electron's own security warnings would show up in the console of every page viewed in Chrome.
@@ -40,6 +41,8 @@ function createWindow(): void {
   // Test runs reach the host from Playwright's main-process evaluate.
   if (process.env.SWIVEL_HIDDEN) (globalThis as { swivelHost?: EngineHost }).swivelHost = host
   if (process.env.SWIVEL_SELFTEST) win.webContents.once('did-finish-load', () => void selfTest(win, host))
+  const visualDir = process.env.SWIVEL_VISUAL
+  if (visualDir) win.webContents.once('did-finish-load', () => void visualCheck(win, visualDir))
   win.on('close', () => {
     sessions.get(id)?.destroy()
     sessions.delete(id)

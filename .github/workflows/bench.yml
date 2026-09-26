@@ -40,6 +40,22 @@ jobs:
         timeout-minutes: 3
         shell: bash
         run: SWIVEL_SELFTEST=1 SWIVEL_HIDDEN=1 npx electron .
+      - name: Visual check (macOS)
+        if: runner.os == 'macOS'
+        timeout-minutes: 4
+        run: SWIVEL_VISUAL=screenshots npx electron .
+      - name: Visual check (Linux)
+        if: runner.os == 'Linux'
+        timeout-minutes: 4
+        run: |
+          sudo apt-get install -y imagemagick >/dev/null
+          SWIVEL_VISUAL=screenshots xvfb-run -a -s "-screen 0 1440x960x24" npx electron . --no-sandbox
+      - uses: actions/upload-artifact@v4
+        if: always() && runner.os != 'Windows'
+        with:
+          name: screenshots-${{ runner.os }}
+          path: screenshots/
+          if-no-files-found: ignore
       - name: App test (Linux)
         timeout-minutes: 8
         if: runner.os == 'Linux'

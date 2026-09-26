@@ -7,8 +7,8 @@ const LEVELS = { debug: 'debug', info: 'log', warning: 'warning', error: 'error'
 
 /**
  * Chrome shown natively: Electron's own Chromium in a view laid over the page area.
- * No streaming, so it is as fast as a real browser. Viewport size, scaling and dark
- * mode use the DevTools protocol (Electron's device emulation under test runners).
+ * No streaming, so it is as fast as a real browser. The view fits the page area and zoom makes
+ * the page lay out at the viewport width. Dark mode uses the DevTools protocol.
  */
 export class NativeChrome {
   private view?: WebContentsView
@@ -105,12 +105,14 @@ export class NativeChrome {
     const wc = this.view?.webContents
     if (!wc || !this.opts || !this.committed || wc.isDestroyed()) return
     const { viewport, colorScheme } = this.opts
-    const scale = this.rect ? this.rect.width / viewport.width : 1
-    const mobile = viewport.width < 600
 
-    // Prefer the DevTools protocol: its overrides survive navigations, so pages never see the
-    // wrong size or colour scheme, even for a moment. Attaching it while a test runner is
-    // connected over remote debugging crashes Electron, so tests use Electron's emulation.
+    // The view is sized to fit the page area; zoom makes the page lay out at the viewport width.
+    // (A DevTools size override draws at full size and spills outside the view, so it's not used.)
+    // Zoom is per origin, so this is reapplied after every navigation.
+    if (this.rect) wc.setZoomFactor(this.rect.width / viewport.width)
+
+    // Dark mode needs the DevTools protocol. Attaching it while a test runner is connected over
+    // remote debugging crashes Electron, so it is skipped then.
     if (!wc.debugger.isAttached() && !app.commandLine.hasSwitch('remote-debugging-port')) {
       try {
         wc.debugger.attach('1.3')
@@ -119,19 +121,10 @@ export class NativeChrome {
       }
     }
     if (wc.debugger.isAttached()) {
-      const send = (method: string, params: object) =>
-        Promise.race([wc.debugger.sendCommand(method, params).catch(() => {}), new Promise((r) => setTimeout(r, 1000))])
-      await send('Emulation.setDeviceMetricsOverride', { width: viewport.width, height: viewport.height, deviceScaleFactor: 0, mobile, scale })
-      await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: colorScheme }] })
-    } else {
-      wc.enableDeviceEmulation({
-        screenPosition: mobile ? 'mobile' : 'desktop',
-        screenSize: viewport,
-        viewPosition: { x: 0, y: 0 },
-        deviceScaleFactor: 0,
-        viewSize: viewport,
-        scale
-      })
+      await Promise.race([
+        wc.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: colorScheme }] }).catch(() => {}),
+        new Promise((r) => setTimeout(r, 1000))
+      ])
     }
   }
 
