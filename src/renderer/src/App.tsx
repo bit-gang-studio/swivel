@@ -20,6 +20,7 @@ export function App() {
   const [dark, setDark] = useState(false)
   const [logs, setLogs] = useState<ConsoleEntry[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
   const viewport = SIZES[sizeIndex].viewport
   // Like a real browser, never overwrite the address bar while the user is typing in it.
   const editing = useRef(false)
@@ -32,7 +33,8 @@ export function App() {
         if (!editing.current) setAddress(u)
         setError(null)
       }),
-      window.swivel.on('error', setError)
+      window.swivel.on('error', setError),
+      window.swivel.on('loading', setLoading)
     ]
     return () => offs.forEach((off) => off())
   }, [])
@@ -95,11 +97,12 @@ export function App() {
           <input type="checkbox" checked={dark} onChange={(e) => setDark(e.target.checked)} />
           Dark
         </label>
+        <div className={loading ? 'progress on' : 'progress'} role="progressbar" aria-label="Page loading" aria-busy={loading} />
       </form>
 
       <main className="viewport">
         {error && <p className="status error">{error}</p>}
-        <LiveView viewport={viewport} label={engineLabel(engine, platform)} />
+        <LiveView viewport={viewport} engine={engine} label={engineLabel(engine, platform)} />
       </main>
 
       <section className="console" aria-label="Console">

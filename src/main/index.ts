@@ -29,7 +29,7 @@ function createWindow(): void {
     })
   )
   win.on('closed', () => {
-    void sessions.get(id)?.stop()
+    sessions.get(id)?.stop()
     sessions.delete(id)
   })
 
@@ -48,7 +48,7 @@ function createWindow(): void {
 ipcMain.handle('swivel:start', (e, opts: LiveOptions) => sessions.get(e.sender.id)?.start(opts))
 ipcMain.handle('swivel:navigate', (e, url: string) => sessions.get(e.sender.id)?.navigate(url))
 ipcMain.handle('swivel:history', (e, action: 'back' | 'forward' | 'reload') => sessions.get(e.sender.id)?.history(action))
-ipcMain.on('swivel:input', (e, input: InputEvent) => void sessions.get(e.sender.id)?.input(input))
+ipcMain.on('swivel:input', (e, input: InputEvent) => sessions.get(e.sender.id)?.input(input))
 
 app.whenReady().then(() => {
   createWindow()

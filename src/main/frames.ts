@@ -68,7 +68,7 @@ export class FrameSource {
     while (!this.stopped) {
       const started = performance.now()
       try {
-        const data = await this.page.screenshot({ type: 'jpeg', quality: 80, scale: 'css', animations: 'allow', caret: 'initial', timeout: 5000 })
+        const data = await this.page.screenshot({ type: 'jpeg', quality: 80, scale: 'css', animations: 'allow', caret: 'initial', timeout: 1500 })
         const hash = createHash('md5').update(data).digest('hex')
         if (hash !== last) {
           last = hash
@@ -78,8 +78,7 @@ export class FrameSource {
           this.unchanged++
         }
       } catch {
-        // Page is navigating or closed; try again shortly.
-        this.unchanged = IDLE_AFTER
+        // The page is mid-load and can't paint yet, or it closed. Keep the last frame and retry soon.
       }
       const wait = this.unchanged >= IDLE_AFTER ? IDLE_MS : FRAME_MS - (performance.now() - started)
       if (wait > 0) await this.sleep(wait)

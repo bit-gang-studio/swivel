@@ -37,4 +37,5 @@ export interface LiveEvents {
   console: ConsoleEntry
   url: string
   error: string
+  loading: boolean
 }

@@ -1,11 +1,13 @@
-import { useEffect, useRef, type KeyboardEvent, type MouseEvent } from 'react'
-import type { Viewport } from '../../shared/types'
+import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
+import type { EngineId, Viewport } from '../../shared/types'
 
 const BUTTONS = ['left', 'middle', 'right'] as const
 
 /** Draws streamed frames and sends mouse, wheel and key input back to the engine. */
-export function LiveView({ viewport, label }: { viewport: Viewport; label: string }) {
+export function LiveView({ viewport, label, engine }: { viewport: Viewport; label: string; engine: EngineId }) {
   const canvas = useRef<HTMLCanvasElement>(null)
+  // Which engine painted the frame on screen. Until the chosen engine sends a frame, the old one is faded.
+  const [shownEngine, setShownEngine] = useState<EngineId | null>(null)
   const pendingMove = useRef<{ x: number; y: number } | null>(null)
 
   useEffect(() => {
@@ -31,6 +33,7 @@ export function LiveView({ viewport, label }: { viewport: Viewport; label: strin
       }
     }
     return window.swivel.on('frame', (frame) => {
+      setShownEngine(frame.engine)
       next = new Blob([frame.data as Uint8Array<ArrayBuffer>], { type: 'image/jpeg' })
       void draw()
     })
@@ -68,7 +71,7 @@ export function LiveView({ viewport, label }: { viewport: Viewport; label: strin
   return (
     <canvas
       ref={canvas}
-      className="live"
+      className={shownEngine === engine ? 'live' : 'live stale'}
       tabIndex={0}
       aria-label={`Live page in ${label}`}
       width={viewport.width}
