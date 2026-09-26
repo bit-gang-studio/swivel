@@ -48,15 +48,12 @@ export class NativeChrome {
     })
     view.setVisible(false)
     this.win.contentView.addChildView(view)
+    if (this.rect) view.setBounds(this.bounds(this.rect))
     // Commit a blank page first, so emulation (size, dark mode) is in place before real content runs.
-    this.blank = wc.loadURL('about:blank').then(
-      () => {
-        this.committed = true
-      },
-      () => {
-        this.committed = true
-      }
-    )
+    const blank = wc.loadURL('about:blank').catch(() => {})
+    this.blank = Promise.race([blank, new Promise<void>((r) => setTimeout(r, 2000))]).then(() => {
+      this.committed = true
+    })
     return view
   }
 
@@ -67,7 +64,7 @@ export class NativeChrome {
     await this.blank
     await this.applyEmulation()
     view.setVisible(!!this.rect)
-    if (!sameUrl || view.webContents.getURL() === '') this.load(opts.url)
+    if (!sameUrl || view.webContents.getURL() === 'about:blank') this.load(opts.url)
   }
 
   private load(url: string): void {
@@ -93,9 +90,13 @@ export class NativeChrome {
   async setRect(rect: ViewRect): Promise<void> {
     this.rect = rect
     if (!this.view) return
-    this.view.setBounds({ x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) })
+    this.view.setBounds(this.bounds(rect))
     await this.applyEmulation()
     if (this.opts) this.view.setVisible(true)
+  }
+
+  private bounds(rect: ViewRect) {
+    return { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) }
   }
 
   private async applyEmulation(): Promise<void> {

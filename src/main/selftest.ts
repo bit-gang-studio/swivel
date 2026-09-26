@@ -6,7 +6,7 @@ import type { EngineHost } from './host'
  * (a runner changes how the debugger behaves). Prints the result and quits.
  */
 export async function selfTest(win: BrowserWindow, host: EngineHost): Promise<void> {
-  const page = `data:text/html,<script>console.log('dark:' + matchMedia('(prefers-color-scheme: dark)').matches + ' width:' + innerWidth)</script>`
+  const page = 'data:text/html,' + encodeURIComponent("<script>console.log('dark:' + matchMedia('(prefers-color-scheme: dark)').matches + ' width:' + innerWidth)</script>")
   const done = (ok: boolean, msg: string) => {
     console.log(`SELFTEST ${ok ? 'PASS' : 'FAIL'} ${msg}`)
     app.exit(ok ? 0 : 1)
