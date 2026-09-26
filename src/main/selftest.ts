@@ -13,10 +13,8 @@ export async function selfTest(win: BrowserWindow, host: EngineHost): Promise<vo
   }
   setTimeout(() => done(false, 'timed out'), 30_000)
   await host.setRect({ x: 0, y: 100, width: 640, height: 400 })
-  await host.start({ engine: 'chromium', url: 'about:blank', viewport: { width: 1280, height: 800 }, colorScheme: 'dark' })
-  await new Promise((r) => setTimeout(r, 1000))
   host.onConsole = (text) => {
     if (text.startsWith('dark:')) done(text === 'dark:true width:1280', text)
   }
-  await host.navigate(page)
+  await host.start({ engine: 'chromium', url: page, viewport: { width: 1280, height: 800 }, colorScheme: 'dark' })
 }

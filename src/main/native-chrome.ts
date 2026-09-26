@@ -16,6 +16,7 @@ export class NativeChrome {
   private rect?: ViewRect
   /** Electron crashes if device emulation is enabled before the view has committed a page. */
   private committed = false
+  private blank: Promise<void> = Promise.resolve()
   private win: BrowserWindow
   private emit: Emit
 
@@ -33,11 +34,9 @@ export class NativeChrome {
     wc.on('did-start-loading', () => this.emit('loading', true))
     wc.on('did-stop-loading', () => this.emit('loading', false))
     wc.on('did-navigate', (_e, url) => {
-      // A committed page has a renderer, so emulation is safe to apply (and must be reapplied
-      // when navigation swaps renderer processes).
-      this.committed = true
+      if (url === 'about:blank') return
       this.emit('url', url)
-      void this.applyEmulation()
+      void this.applyEmulation() // Reapply in case navigation swapped renderer processes.
     })
     wc.on('did-navigate-in-page', (_e, url, isMainFrame) => isMainFrame && this.emit('url', url))
     wc.on('did-fail-load', (_e, code, desc, url, isMainFrame) => {
@@ -49,6 +48,15 @@ export class NativeChrome {
     })
     view.setVisible(false)
     this.win.contentView.addChildView(view)
+    // Commit a blank page first, so emulation (size, dark mode) is in place before real content runs.
+    this.blank = wc.loadURL('about:blank').then(
+      () => {
+        this.committed = true
+      },
+      () => {
+        this.committed = true
+      }
+    )
     return view
   }
 
@@ -56,6 +64,7 @@ export class NativeChrome {
     const view = (this.view ??= this.create())
     const sameUrl = this.opts?.url === opts.url
     this.opts = opts
+    await this.blank
     await this.applyEmulation()
     view.setVisible(!!this.rect)
     if (!sameUrl || view.webContents.getURL() === '') this.load(opts.url)
@@ -68,6 +77,7 @@ export class NativeChrome {
   async navigate(url: string): Promise<void> {
     if (!this.opts) return
     this.opts = { ...this.opts, url }
+    await this.blank
     this.load(url)
   }
 
