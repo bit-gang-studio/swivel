@@ -1,7 +1,8 @@
-// Spike benchmark: live frames and input lag per engine, using page.screencast.
-// Run: node scripts/bench-live.mjs
+// Benchmark: frames per second and click-to-screen lag per engine, using the app's FrameSource.
+// Run: node --experimental-strip-types scripts/bench-live.mjs   (SIZE=390x844 to change size)
 import { chromium, firefox, webkit } from 'playwright-core'
 import jpeg from 'jpeg-js'
+import { FrameSource } from '../src/main/frames.ts'
 
 const [W, H] = (process.env.SIZE ?? '1280x800').split('x').map(Number)
 const RUN_MS = 3000
@@ -10,39 +11,42 @@ const ANIM = `<body style="margin:0"><div id=b style="width:200px;height:200px;b
 const CLICK = `<style>html,body{margin:0;height:100%;background:#fff}</style><script>document.addEventListener('mousedown',()=>{document.documentElement.style.background='#000';document.body.style.background='#000'})</script>`
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
-const isDark = (buf) => { const { data, width } = jpeg.decode(buf, { useTArray: true }); const i = ((data.length / 4 / width / 2 | 0) * width + (width / 2 | 0)) * 4; return data[i] < 60 }
+const isDark = (buf) => { const { data, width, height } = jpeg.decode(buf, { useTArray: true }); return data[((height >> 1) * width + (width >> 1)) * 4] < 60 }
 
 async function bench(name, type) {
   const browser = await type.launch()
   const page = await browser.newPage({ viewport: { width: W, height: H } })
+  const size = { width: W, height: H }
 
-  // 1. Frame rate with a page that animates every frame.
+  // 1. Frames per second on a page that animates every frame.
   await page.setContent(ANIM)
-  let frames = 0, bytes = 0
-  await page.screencast.start({ size: { width: W, height: H }, quality: 70, onFrame: (f) => { frames++; bytes += f.data.length } })
+  let frames = 0
+  let src = new FrameSource(page, name, size, () => frames++)
+  await src.start()
   await sleep(RUN_MS)
-  await page.screencast.stop()
-  const fps = frames / (RUN_MS / 1000)
+  src.stop()
+  await sleep(200)
 
   // 2. Idle frames on a static page, then click-to-screen lag.
   await page.setContent(CLICK)
-  let idle = 0, clickedAt = 0, lag = -1
-  const done = new Promise((resolve) => {
-    page.screencast.start({ size: { width: W, height: H }, quality: 70, onFrame: (f) => {
-      if (!clickedAt) { idle++; return }
-      if (lag < 0 && isDark(f.data)) { lag = performance.now() - clickedAt; resolve() }
-    } })
+  let idle = 0, clickedAt = 0, lag = -1, resolve
+  const done = new Promise((r) => (resolve = r))
+  src = new FrameSource(page, name, size, (f) => {
+    if (!clickedAt) return idle++
+    if (lag < 0 && isDark(f.data)) { lag = performance.now() - clickedAt; resolve() }
   })
-  await sleep(1000)
-  const idleFps = idle
-  await page.mouse.move(100, 100)
+  await src.start()
+  await sleep(2000)
+  const idleFrames = idle
+  await page.mouse.move(W / 2, H / 2)
   clickedAt = performance.now()
+  src.wake()
   await page.mouse.down()
   await Promise.race([done, sleep(3000)])
-  await page.screencast.stop()
+  src.stop()
 
   await browser.close()
-  return { engine: name, screencastFps: +fps.toFixed(1), avgFrameKB: frames ? Math.round(bytes / frames / 1024) : 0, idleFramesPerSec: idleFps, clickLagMs: Math.round(lag) }
+  return { engine: name, fps: +(frames / (RUN_MS / 1000)).toFixed(1), idleFramesIn2s: idleFrames, clickLagMs: Math.round(lag) }
 }
 
 const rows = []

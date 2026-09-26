@@ -1,5 +1,6 @@
 import { chromium, firefox, webkit, type Browser, type BrowserContext, type BrowserType, type Page } from 'playwright-core'
 import type { EngineId, InputEvent, LiveEvents, LiveOptions } from '../shared/types'
+import { FrameSource } from './frames'
 
 const types: Record<EngineId, BrowserType> = { chromium, firefox, webkit }
 const browsers = new Map<EngineId, Promise<Browser>>()
@@ -29,6 +30,7 @@ type Emit = <K extends keyof LiveEvents>(event: K, payload: LiveEvents[K]) => vo
 export class LiveSession {
   private context?: BrowserContext
   private page?: Page
+  private frames?: FrameSource
   private opts?: LiveOptions
   private generation = 0
 
@@ -58,17 +60,13 @@ export class LiveSession {
       page.on('pageerror', (err) => this.emit('console', { engine: opts.engine, type: 'error', text: err.message }))
       page.on('framenavigated', (frame) => {
         if (frame === page.mainFrame()) this.emit('url', frame.url())
+        this.frames?.wake()
       })
 
-      await page.screencast.start({
-        size: opts.viewport,
-        quality: 80,
-        onFrame: (f) => {
-          if (gen === this.generation) {
-            this.emit('frame', { engine: opts.engine, data: new Uint8Array(f.data), width: f.viewportWidth, height: f.viewportHeight })
-          }
-        }
+      this.frames = new FrameSource(page, opts.engine, opts.viewport, (f) => {
+        if (gen === this.generation) this.emit('frame', { engine: opts.engine, data: new Uint8Array(f.data), width: f.width, height: f.height })
       })
+      await this.frames.start()
       await page.goto(opts.url, { waitUntil: 'load', timeout: 30_000 })
       if (scrollY) await page.evaluate((y) => window.scrollTo(0, y), scrollY)
     } catch (err) {
@@ -91,6 +89,7 @@ export class LiveSession {
 
   /** Input is replayed strictly in order, so a mouse up never lands before its down. */
   input(e: InputEvent): Promise<void> {
+    this.frames?.wake()
     this.queue = this.queue.then(() => this.replay(e))
     return this.queue
   }
@@ -142,6 +141,8 @@ export class LiveSession {
   }
 
   async stop(): Promise<void> {
+    this.frames?.stop()
+    this.frames = undefined
     const context = this.context
     this.context = undefined
     this.page = undefined
