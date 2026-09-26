@@ -34,7 +34,14 @@ export class LiveSession {
 
   constructor(private emit: Emit) {}
 
-  async start(opts: LiveOptions): Promise<void> {
+  private starting: Promise<void> = Promise.resolve()
+
+  start(opts: LiveOptions): Promise<void> {
+    this.starting = this.open(opts)
+    return this.starting
+  }
+
+  private async open(opts: LiveOptions): Promise<void> {
     const gen = ++this.generation
     const scrollY = this.opts && this.opts.url === opts.url ? await this.scrollY() : 0
     await this.stop()
@@ -70,6 +77,7 @@ export class LiveSession {
   }
 
   async navigate(url: string): Promise<void> {
+    await this.starting
     if (!this.page || !this.opts) return
     this.opts = { ...this.opts, url }
     try {
