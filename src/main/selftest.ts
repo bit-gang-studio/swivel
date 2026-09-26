@@ -13,6 +13,8 @@ export async function selfTest(win: BrowserWindow, host: EngineHost): Promise<vo
   }
   setTimeout(() => done(false, 'timed out'), 30_000)
   const step = (m: string) => console.log(`SELFTEST step ${m}`)
+  // Let the UI's own first page start first, so it doesn't override this one.
+  await new Promise((r) => setTimeout(r, 3000))
   await host.setRect({ x: 0, y: 100, width: 640, height: 400 })
   step('rect set')
   host.onConsole = (text) => {

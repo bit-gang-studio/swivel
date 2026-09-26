@@ -62,9 +62,7 @@ export class NativeChrome {
     const sameUrl = this.opts?.url === opts.url
     this.opts = opts
     await this.blank
-    if (process.env.SWIVEL_SELFTEST) console.log('SELFTEST step blank committed')
     await this.applyEmulation()
-    if (process.env.SWIVEL_SELFTEST) console.log('SELFTEST step emulation applied')
     view.setVisible(!!this.rect)
     if (!sameUrl || view.webContents.getURL() === 'about:blank') this.load(opts.url)
   }
