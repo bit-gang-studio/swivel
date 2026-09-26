@@ -1,11 +1,13 @@
 // Embeds WKWebView, the engine Safari uses, inside an Electron window.
 //
-// The web view fills a clipping container at the on-screen size. pageZoom scales the page so it
-// lays out at exactly the emulated viewport width while fitting the space Swivel gives it.
+// The web view fills a clipping container at the on-screen size and is scaled so the page lays out
+// at exactly the emulated viewport width. Scaling uses WKWebView's view scale, as Safari's
+// Responsive Design Mode does, because pageZoom can't go below 0.5.
 // Console output and navigation events go back to JavaScript through a thread-safe function.
 
 #import <AppKit/AppKit.h>
 #import <WebKit/WebKit.h>
+#import <objc/message.h>
 #include <napi.h>
 #include <map>
 #include <string>
@@ -139,7 +141,13 @@ static Napi::Value SetFrame(const Napi::CallbackInfo& info) {
   double top = parent.isFlipped ? y : parent.bounds.size.height - y - h;
   v.container.frame = NSMakeRect(x, top, w, h);
   v.web.frame = v.container.bounds;
-  v.web.pageZoom = vw > 0 ? w / vw : 1;  // Layout width becomes w / zoom = the viewport width.
+  double scale = vw > 0 ? w / vw : 1;  // Layout width becomes w / scale = the viewport width.
+  SEL setViewScale = NSSelectorFromString(@"_setViewScale:");
+  if ([v.web respondsToSelector:setViewScale]) {
+    ((void (*)(id, SEL, CGFloat))objc_msgSend)(v.web, setViewScale, scale);
+  } else {
+    v.web.pageZoom = scale;  // Fallback; limited to 0.5 and up.
+  }
   return info.Env().Undefined();
 }
 
