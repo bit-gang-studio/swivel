@@ -47,7 +47,11 @@ export class EngineHost {
     return this.natives[engine]
   }
 
+  /** How many times start() has run. The self-test waits for the UI's first start. */
+  starts = 0
+
   start(opts: LiveOptions): Promise<void> {
+    this.starts++
     const next = this.natives[opts.engine]
     for (const n of Object.values(this.natives)) if (n !== next) n.stop()
     this.current = next

@@ -27,7 +27,8 @@ export async function selfTest(win: BrowserWindow, host: EngineHost): Promise<vo
     finish()
   }, 60_000)
   // Let the UI's own first page start first, so it doesn't override these.
-  await new Promise((r) => setTimeout(r, 3000))
+  while (host.starts === 0) await new Promise((r) => setTimeout(r, 100))
+  await new Promise((r) => setTimeout(r, 1500))
   // Scale 0.3125: well below 0.5, where WKWebView's page zoom stops, so clamping shows up.
   await host.setRect({ x: 0, y: 100, width: 400, height: 250 })
   for (const engine of nativeEngines()) {
