@@ -109,7 +109,10 @@ export class LiveSession {
       })
 
       this.frames = new FrameSource(page, opts.engine, opts.viewport, (f) => {
-        if (gen === this.generation) this.emit('frame', { engine: opts.engine, data: new Uint8Array(f.data), width: f.width, height: f.height })
+        if (gen !== this.generation) return
+        this.emit('frame', { engine: opts.engine, data: new Uint8Array(f.data), width: f.width, height: f.height })
+        // The page changed under the mouse (it loaded, or a hover effect ran), so the cursor may have too.
+        if (this.mouseAt.x >= 0) this.probeCursor()
       })
       await this.frames.start()
       void this.load(page, () => page.goto(opts.url, { waitUntil: 'load', timeout: 30_000 })).then(async () => {
@@ -188,7 +191,7 @@ export class LiveSession {
 
   /**
    * Streamed pages can't set the app's cursor, so ask the page which cursor applies under the
-   * mouse. Throttled, so a moving mouse costs at most one call every 40 ms.
+   * mouse, after it moves or the page changes. Throttled to one call every 100 ms.
    */
   private probeCursor(): void {
     if (this.cursorTimer) return
@@ -202,7 +205,7 @@ export class LiveSession {
         this.lastCursor = cursor
         this.emit('cursor', cursor)
       }
-    }, 40)
+    }, 100)
   }
 
   private async replay(e: InputEvent): Promise<void> {
