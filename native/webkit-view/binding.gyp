@@ -4,7 +4,7 @@
       "target_name": "webkit_view",
       "conditions": [
         ["OS=='mac'", {
-          "sources": ["webkit_view.mm"],
+          "sources": ["webkit_view.mm", "mirror.mm"],
           "include_dirs": ["<!(node -p \"require('node-addon-api').include_dir\")"],
           "defines": ["NAPI_VERSION=8", "NAPI_DISABLE_CPP_EXCEPTIONS"],
           "xcode_settings": {
@@ -12,7 +12,7 @@
             "MACOSX_DEPLOYMENT_TARGET": "12.0",
             "OTHER_CFLAGS": ["-fobjc-arc"]
           },
-          "link_settings": { "libraries": ["-framework AppKit", "-framework WebKit"] }
+          "link_settings": { "libraries": ["-framework AppKit", "-framework WebKit", "-framework ScreenCaptureKit", "-framework CoreMedia", "-framework CoreVideo", "-framework QuartzCore", "-framework IOSurface"] }
         }]
       ]
     }

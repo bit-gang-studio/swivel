@@ -24,6 +24,7 @@ jobs:
       - run: npm ci
       - run: npm run build:native
       - run: npx playwright install --with-deps chromium firefox webkit
+      - run: node scripts/patch-firefox.mjs
       - if: inputs.bench
         run: node --experimental-strip-types --no-warnings scripts/bench-live.mjs
       - if: inputs.bench

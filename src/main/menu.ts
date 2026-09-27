@@ -1,4 +1,5 @@
-import { BrowserWindow, Menu, type MenuItemConstructorOptions } from 'electron'
+import { BrowserWindow, Menu, dialog, type MenuItemConstructorOptions } from 'electron'
+import { requestScreenRecording, windowedFirefoxStatus } from './firefox-window'
 
 /**
  * App menu. Shortcuts live here, not in the page UI, so they work even when a native engine
@@ -30,6 +31,21 @@ export function installMenu(): void {
         { type: 'separator' },
         { label: 'Toggle Console', accelerator: mac ? 'Alt+Cmd+J' : 'Ctrl+Shift+J', click: send('console') },
         { type: 'separator' },
+        ...(windowedFirefoxStatus() === 'needs-permission'
+          ? [
+              {
+                label: 'Enable Smooth Firefox…',
+                click: () => {
+                  requestScreenRecording()
+                  void dialog.showMessageBox({
+                    message: 'Allow Screen Recording for Swivel',
+                    detail:
+                      'Firefox runs as a real window that Swivel mirrors, which needs the Screen Recording permission. Turn it on in System Settings › Privacy & Security › Screen Recording, then restart Swivel.'
+                  })
+                }
+              }
+            ]
+          : []),
         { role: 'togglefullscreen' }
       ]
     },

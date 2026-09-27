@@ -56,7 +56,7 @@ export class EngineHost {
           ? new NativeChrome(this.win, emit)
           : engine === 'webkit' && webkitAddon
             ? new NativeSafari(this.win, emit, webkitAddon)
-            : new StreamedView(engine, emit)
+            : new StreamedView(engine, emit, this.win)
       this.views.set(engine, view)
     }
     return view
@@ -114,7 +114,8 @@ export class EngineHost {
     if (first) this.broadcasting = true
     await Promise.all(ENGINES.map((e) => this.view(e).update({ ...settings, engine: e })))
     const target = this.view(engine)
-    if (!nativeEngines().includes(engine)) {
+    const drawsNatively = nativeEngines().includes(engine) || (target as { drawsNatively?: boolean }).drawsNatively
+    if (!drawsNatively) {
       // A streamed engine draws in the UI, under any native view. Keep the old view up until
       // the new engine's first frame is on screen, so switching doesn't flash an empty area.
       const frame = this.nextFrame(engine, 500)

@@ -6,6 +6,7 @@ import { EngineHost, nativeEngines, streamedEngines } from './host'
 import { selfTest } from './selftest'
 import { visualCheck } from './visual'
 import { installMenu } from './menu'
+import { windowedFirefoxStatus } from './firefox-window'
 import type { FindRequest } from '../shared/find'
 import type { InputEvent, LiveOptions, ViewRect, Viewport } from '../shared/types'
 
@@ -72,6 +73,7 @@ ipcMain.handle('swivel:rect', (e, rect: ViewRect) => sessions.get(e.sender.id)?.
 ipcMain.on('swivel:input', (e, input: InputEvent) => sessions.get(e.sender.id)?.input(input))
 
 app.whenReady().then(() => {
+  console.log(`Swivel: Firefox mode ${windowedFirefoxStatus()}`)
   installMenu()
   createWindow()
   prewarmBrowsers(streamedEngines())

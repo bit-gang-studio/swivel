@@ -25,6 +25,15 @@ export function LiveView({ viewport, label, engine }: { viewport: Viewport; labe
     observer.observe(el)
     return () => observer.disconnect()
   }, [viewport.width, viewport.height])
+
+  // Tell the main process where the page sits, for engines drawn by a native layer (real-window
+  // Firefox on macOS). Streamed frames don't need it.
+  useLayoutEffect(() => {
+    const c = canvas.current
+    if (!c || !box.width) return
+    const r = c.getBoundingClientRect()
+    void window.swivel.setRect({ x: r.left, y: r.top, width: r.width, height: r.height })
+  }, [box.width, box.height, engine])
   const pendingMove = useRef<{ x: number; y: number } | null>(null)
 
   useEffect(() => {

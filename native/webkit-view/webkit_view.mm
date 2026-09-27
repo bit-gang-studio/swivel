@@ -222,7 +222,10 @@ static Napi::Value Destroy(const Napi::CallbackInfo& info) {
   return info.Env().Undefined();
 }
 
+void InitMirror(Napi::Env env, Napi::Object exports);
+
 static Napi::Object Init(Napi::Env env, Napi::Object exports) {
+  InitMirror(env, exports);
   exports.Set("create", Napi::Function::New(env, Create));
   exports.Set("setFrame", Napi::Function::New(env, SetFrame));
   exports.Set("load", Napi::Function::New(env, Load));

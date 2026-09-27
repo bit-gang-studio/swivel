@@ -1,9 +1,10 @@
 import { join } from 'node:path'
-import { app, screen } from 'electron'
+import { app, screen, type BrowserWindow } from 'electron'
 import { chromium, firefox, webkit, type BrowserContext, type BrowserType, type Page } from 'playwright-core'
 import type { EngineId, Frame, InputEvent, LiveOptions, ViewRect } from '../shared/types'
 import type { Emit, PageView } from './view'
 import { FrameSource } from './frames'
+import { FirefoxWindow, windowedFirefoxStatus, windowedLaunchOptions } from './firefox-window'
 import { findInPage, type FindRequest } from '../shared/find'
 
 const types: Record<EngineId, BrowserType> = { chromium, firefox, webkit }
@@ -16,6 +17,12 @@ const contexts = new Map<EngineId, Promise<BrowserContext>>()
  */
 function getContext(engine: EngineId): Promise<BrowserContext> {
   let context = contexts.get(engine)
+  if (!context && engine === 'firefox' && windowedFirefoxStatus() === 'on') {
+    const profile = join(app.getPath('userData'), 'profiles', engine)
+    context = firefox.launchPersistentContext(profile, windowedLaunchOptions({ width: 1280, height: 800 }))
+    context.catch(() => contexts.delete(engine))
+    contexts.set(engine, context)
+  }
   if (!context) {
     const scale = screen.getPrimaryDisplay().scaleFactor
     const options = {
@@ -38,6 +45,7 @@ function getContext(engine: EngineId): Promise<BrowserContext> {
 /** Start streamed engines in the background so the first switch is fast and warmed up. */
 export function prewarmBrowsers(engines: EngineId[]): void {
   for (const engine of engines) {
+    if (engine === 'firefox' && windowedFirefoxStatus() === 'on') continue // Launched with its first page.
     void getContext(engine)
       .then(async (context) => {
         const page = await context.newPage()
@@ -93,9 +101,20 @@ export class StreamedView implements PageView {
   /** Resolves once the page exists. Never waits for a page to finish loading. */
   private ready: Promise<void> = Promise.resolve()
 
-  constructor(engine: EngineId, emit: Emit) {
+  private win?: BrowserWindow
+  /** Real-window Firefox on macOS, when available (see firefox-window.ts). */
+  private window?: FirefoxWindow
+  private rect?: ViewRect
+
+  constructor(engine: EngineId, emit: Emit, win?: BrowserWindow) {
     this.engine = engine
     this.emit = emit
+    this.win = win
+  }
+
+  /** Drawn by a native layer rather than frames on the canvas. */
+  get drawsNatively(): boolean {
+    return !!this.window
   }
 
   update(opts: LiveOptions): Promise<void> {
@@ -112,6 +131,7 @@ export class StreamedView implements PageView {
       if (sizeChanged) {
         await within(page.setViewportSize(opts.viewport), 3000, undefined)
         await this.frames?.setSize(opts.viewport)
+        this.window?.resize(opts.viewport)
       }
       await within(page.emulateMedia({ colorScheme: opts.colorScheme }), 3000, undefined)
       if (this.loadedUrl !== opts.url) {
@@ -127,6 +147,25 @@ export class StreamedView implements PageView {
     const context = await getContext(this.engine)
     const page = await context.newPage()
     this.page = page
+    if (this.engine === 'firefox' && this.win && windowedFirefoxStatus() === 'on' && this.opts) {
+      // Real-window mode: close the window Firefox opens at launch, mirror this page's window, and
+      // load links that open new windows here instead (a stray window would show on screen).
+      for (const other of context.pages()) if (other !== page) await other.close().catch(() => {})
+      context.on('page', (popup) => {
+        void popup.waitForURL(/.*/, { timeout: 5000 }).catch(() => {}).then(() => {
+          const url = popup.url()
+          void popup.close().catch(() => {})
+          if (url && url !== 'about:blank') void this.navigate(url)
+        })
+      })
+      await within(page.setViewportSize(this.opts.viewport), 3000, undefined)
+      const window = new FirefoxWindow(this.win, context, page, this.opts.viewport)
+      if (this.rect) window.setRect(this.rect)
+      if (await window.start()) {
+        this.window = window
+        if (this.visible) window.show()
+      } else window.destroy()
+    }
     page.on('console', (msg) => this.emit('console', { engine: this.engine, type: msg.type(), text: msg.text() }))
     page.on('pageerror', (err) => this.emit('console', { engine: this.engine, type: 'error', text: err.message }))
     page.on('request', (req) => {
@@ -146,7 +185,7 @@ export class StreamedView implements PageView {
 
   private startFrames(): void {
     const page = this.page
-    if (!page || !this.opts || this.frames) return
+    if (!page || !this.opts || this.frames || this.window) return
     const frames = new FrameSource(page, this.engine, this.opts.viewport, (f) => {
       if (frames !== this.frames) return
       this.lastFrame = { engine: this.engine, data: new Uint8Array(f.data), format: f.format, width: f.width, height: f.height }
@@ -163,12 +202,14 @@ export class StreamedView implements PageView {
   /** Stream frames. Hidden views keep their page but send nothing. The last frame is resent at once, so switching back shows the page immediately. */
   show(): void {
     this.visible = true
-    if (this.lastFrame) this.emit('frame', this.lastFrame)
+    this.window?.show()
+    if (this.lastFrame && !this.window) this.emit('frame', this.lastFrame)
     this.startFrames()
   }
 
   hide(): void {
     this.visible = false
+    this.window?.hide()
     this.frames?.stop()
     this.frames = undefined
     this.pending = []
@@ -176,8 +217,10 @@ export class StreamedView implements PageView {
     this.lastCursor = ''
   }
 
-  async setRect(_rect: ViewRect): Promise<void> {
-    // Streamed frames are drawn by the UI wherever it likes.
+  async setRect(rect: ViewRect): Promise<void> {
+    // Streamed frames are drawn by the UI wherever it likes; a mirrored window is placed here.
+    this.rect = rect
+    this.window?.setRect(rect)
   }
 
   /** Run a navigation in the background and report real failures. */
@@ -304,6 +347,8 @@ export class StreamedView implements PageView {
 
   destroy(): void {
     this.hide()
+    this.window?.destroy()
+    this.window = undefined
     const page = this.page
     this.page = undefined
     void page?.close().catch(() => {})

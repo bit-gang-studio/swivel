@@ -18,7 +18,7 @@ type RawSession = { send: (method: string, params: object) => Promise<{ data?: s
  * fixed cost); calling the command directly takes about 16 ms for a full 2x frame. Returns null
  * if Playwright's internals change, and callers fall back to page.screenshot.
  */
-function firefoxSession(page: Page): RawSession | null {
+export function jugglerSession(page: Page): RawSession | null {
   try {
     const p = page as unknown as { _connection?: { toImpl?: (x: unknown) => { delegate?: { _session?: RawSession } } } }
     const session = p._connection?.toImpl?.(page)?.delegate?._session
@@ -71,7 +71,7 @@ export class FrameSource {
     this.size = size
     this.onFrame = onFrame
     this.pixelRatio = pixelRatio
-    this.raw = engine === 'firefox' ? firefoxSession(page) : null
+    this.raw = engine === 'firefox' ? jugglerSession(page) : null
   }
 
   /** A new page loaded: its cost is unknown, so go back to screenshots. */
