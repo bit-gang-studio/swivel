@@ -16,7 +16,7 @@ const exe = firefox.executablePath() // .../firefox-NNNN/firefox/Nightly.app/Con
 const source = dirname(dirname(dirname(exe)))
 const revision = source.match(/firefox-(\d+)/)?.[1] ?? 'unknown'
 const dest = join(homedir(), 'Library/Caches/swivel', `firefox-window-${revision}`, 'Nightly.app')
-const MARKER = 'swivel-patch-v13'
+const MARKER = 'swivel-patch-v14'
 const SWIVEL_NATIVE_TWEAKS = `
 // Swivel: native window tweaks, run from inside Firefox (js-ctypes, Objective-C runtime).
 // - Accessory app: no Dock icon or app switcher entry. Firefox makes itself a regular app at
@@ -26,6 +26,22 @@ const SWIVEL_NATIVE_TWEAKS = `
 //   Swivel, but those views show every window).
 // - park: {x, y} (Cocoa screen points) moves visible windows there directly. Firefox's own move
 //   keeps part of the window on screen; setFrameOrigin: doesn't.
+// macOS keeps part of a titled window on screen (constrainFrameRect:toScreen:). Swivel parks its
+// windows off-screen, so that method is replaced, once, with one that returns the frame as is.
+let swivelKeepFrame;
+function swivelUnconstrain(objc, w) {
+  if (swivelKeepFrame) return;
+  const { ctypes } = ChromeUtils.importESModule('resource://gre/modules/ctypes.sys.mjs');
+  const id = ctypes.voidptr_t;
+  const NSRect = new ctypes.StructType('NSRect', [{ x: ctypes.double }, { y: ctypes.double }, { w: ctypes.double }, { h: ctypes.double }]);
+  const Keep = ctypes.FunctionType(ctypes.default_abi, NSRect, [id, id, NSRect, id]);
+  swivelKeepFrame = Keep.ptr((self, cmd, rect, screen) => rect);
+  const lib = ctypes.open('/usr/lib/libobjc.A.dylib');
+  const getClass = lib.declare('object_getClass', ctypes.default_abi, id, id);
+  const sel = lib.declare('sel_registerName', ctypes.default_abi, id, ctypes.char.ptr);
+  const replace = lib.declare('class_replaceMethod', ctypes.default_abi, id, id, id, Keep.ptr, ctypes.char.ptr);
+  replace(getClass(w), sel('constrainFrameRect:toScreen:'), swivelKeepFrame, '{CGRect={CGPoint=dd}{CGSize=dd}}@:{CGRect={CGPoint=dd}{CGSize=dd}}@');
+}
 function swivelNativeTweaks(below, park) {
   try {
     const { ctypes } = ChromeUtils.importESModule('resource://gre/modules/ctypes.sys.mjs');
@@ -59,6 +75,7 @@ function swivelNativeTweaks(below, park) {
       sendVoidULong(w, sel('setIgnoresMouseEvents:'), 1);
       sendVoidULong(w, sel('setHasShadow:'), 0);
       // Directly below Swivel's window (NSWindowBelow = -1), never in front of it.
+      if (park) swivelUnconstrain(objc, w);
       if (park && sendGetBool(w, sel('isVisible'))) sendPoint(w, sel('setFrameOrigin:'), new NSPoint(park.x, park.y));
       if (below && sendGetBool(w, sel('isVisible'))) sendOrder(w, sel('orderWindow:relativeTo:'), -1, below);
     }
