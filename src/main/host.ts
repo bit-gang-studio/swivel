@@ -67,7 +67,22 @@ export class EngineHost {
     return this.views.get(engine)
   }
 
+  /** Resolvers waiting for an engine's next frame. */
+  private frameWaiters = new Map<EngineId, () => void>()
+
+  private nextFrame(engine: EngineId, timeoutMs: number): Promise<void> {
+    return new Promise((resolve) => {
+      const done = () => {
+        this.frameWaiters.delete(engine)
+        resolve()
+      }
+      this.frameWaiters.set(engine, done)
+      setTimeout(done, timeoutMs)
+    })
+  }
+
   private fromView<K extends keyof LiveEvents>(engine: EngineId, event: K, payload: LiveEvents[K]): void {
+    if (event === 'frame') this.frameWaiters.get(engine)?.()
     if (event === 'console') {
       const entry = payload as LiveEvents['console']
       this.onConsole?.(engine, entry.text)
@@ -98,8 +113,17 @@ export class EngineHost {
     this.active = engine
     if (first) this.broadcasting = true
     await Promise.all(ENGINES.map((e) => this.view(e).update({ ...settings, engine: e })))
+    const target = this.view(engine)
+    if (!nativeEngines().includes(engine)) {
+      // A streamed engine draws in the UI, under any native view. Keep the old view up until
+      // the new engine's first frame is on screen, so switching doesn't flash an empty area.
+      const frame = this.nextFrame(engine, 500)
+      target.show()
+      await frame
+    } else {
+      target.show()
+    }
     for (const [e, view] of this.views) if (e !== engine) view.hide()
-    this.view(engine).show()
     const url = this.urls.get(engine)
     if (url) this.emit('url', url)
   }

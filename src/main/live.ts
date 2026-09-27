@@ -1,7 +1,7 @@
 import { join } from 'node:path'
 import { app, screen } from 'electron'
 import { chromium, firefox, webkit, type BrowserContext, type BrowserType, type Page } from 'playwright-core'
-import type { EngineId, InputEvent, LiveOptions, ViewRect } from '../shared/types'
+import type { EngineId, Frame, InputEvent, LiveOptions, ViewRect } from '../shared/types'
 import type { Emit, PageView } from './view'
 import { FrameSource } from './frames'
 import { findInPage, type FindRequest } from '../shared/find'
@@ -17,10 +17,18 @@ const contexts = new Map<EngineId, Promise<BrowserContext>>()
 function getContext(engine: EngineId): Promise<BrowserContext> {
   let context = contexts.get(engine)
   if (!context) {
-    const options = { headless: true, viewport: { width: 1280, height: 800 }, deviceScaleFactor: screen.getPrimaryDisplay().scaleFactor }
+    const scale = screen.getPrimaryDisplay().scaleFactor
+    const options = {
+      headless: true,
+      viewport: { width: 1280, height: 800 },
+      deviceScaleFactor: scale,
+      // Firefox ignores deviceScaleFactor and renders at 1x (blurry on Retina); this pref makes it
+      // render at the screen's real density.
+      ...(engine === 'firefox' ? { firefoxUserPrefs: { 'layout.css.devPixelsPerPx': String(scale) } } : {})
+    }
     context = types[engine]
       .launchPersistentContext(join(app.getPath('userData'), 'profiles', engine), options)
-      .catch(async () => (await types[engine].launch({ headless: true })).newContext(options))
+      .catch(async () => (await types[engine].launch({ headless: true, firefoxUserPrefs: options.firefoxUserPrefs })).newContext(options))
     context.catch(() => contexts.delete(engine))
     contexts.set(engine, context)
   }
@@ -129,6 +137,7 @@ export class StreamedView implements PageView {
       if (frame !== page.mainFrame()) return
       this.loadedUrl = frame.url()
       this.emit('url', frame.url())
+      this.frames?.reset()
       this.frames?.wake()
     })
     if (this.visible) this.startFrames()
@@ -140,17 +149,21 @@ export class StreamedView implements PageView {
     if (!page || !this.opts || this.frames) return
     const frames = new FrameSource(page, this.engine, this.opts.viewport, (f) => {
       if (frames !== this.frames) return
-      this.emit('frame', { engine: this.engine, data: new Uint8Array(f.data), format: f.format, width: f.width, height: f.height })
+      this.lastFrame = { engine: this.engine, data: new Uint8Array(f.data), format: f.format, width: f.width, height: f.height }
+      this.emit('frame', this.lastFrame)
       // The page changed under the mouse (it loaded, or a hover effect ran), so the cursor may have too.
       if (this.mouseAt.x >= 0) this.probeCursor()
-    })
+    }, screen.getPrimaryDisplay().scaleFactor)
     this.frames = frames
     void frames.start()
   }
 
-  /** Stream frames. Hidden views keep their page but send nothing. */
+  private lastFrame?: Frame
+
+  /** Stream frames. Hidden views keep their page but send nothing. The last frame is resent at once, so switching back shows the page immediately. */
   show(): void {
     this.visible = true
+    if (this.lastFrame) this.emit('frame', this.lastFrame)
     this.startFrames()
   }
 

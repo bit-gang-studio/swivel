@@ -13,7 +13,8 @@ const CLICK = `<style>html,body{margin:0;height:100%;background:#fff}</style><sc
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 async function bench(name, type) {
-  const browser = await type.launch()
+  // Firefox ignores deviceScaleFactor; the app uses this pref instead.
+  const browser = await type.launch(name === 'firefox' && DSF > 1 ? { firefoxUserPrefs: { 'layout.css.devPixelsPerPx': String(DSF) } } : {})
   const page = await browser.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: DSF })
   const size = { width: W, height: H }
 
@@ -23,7 +24,7 @@ async function bench(name, type) {
 
   // 1. Frames per second on a page that animates every frame.
   let frames = 0
-  let src = new FrameSource(page, name, size, () => frames++)
+  let src = new FrameSource(page, name, size, () => frames++, DSF)
   await src.start()
   await sleep(RUN_MS)
   src.stop()

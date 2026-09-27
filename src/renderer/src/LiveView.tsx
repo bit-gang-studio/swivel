@@ -6,8 +6,6 @@ const BUTTONS = ['left', 'middle', 'right'] as const
 /** Draws streamed frames and sends mouse, wheel and key input back to the engine. */
 export function LiveView({ viewport, label, engine }: { viewport: Viewport; label: string; engine: EngineId }) {
   const canvas = useRef<HTMLCanvasElement>(null)
-  // Which engine painted the frame on screen. Until the chosen engine sends a frame, the old one is faded.
-  const [shownEngine, setShownEngine] = useState<EngineId | null>(null)
   const [cursor, setCursor] = useState('default')
   useEffect(() => window.swivel.on('cursor', setCursor), [])
 
@@ -52,7 +50,6 @@ export function LiveView({ viewport, label, engine }: { viewport: Viewport; labe
       }
     }
     return window.swivel.on('frame', (frame) => {
-      setShownEngine(frame.engine)
       next = new Blob([frame.data as Uint8Array<ArrayBuffer>], { type: `image/${frame.format}` })
       void draw()
     })
@@ -91,7 +88,7 @@ export function LiveView({ viewport, label, engine }: { viewport: Viewport; labe
     <div ref={area} className="live-area">
     <canvas
       ref={canvas}
-      className={shownEngine === engine ? 'live' : 'live stale'}
+      className="live"
       style={{ cursor, width: box.width, height: box.height }}
       tabIndex={0}
       aria-label={`Live page in ${label}`}
