@@ -16,14 +16,14 @@ const exe = firefox.executablePath() // .../firefox-NNNN/firefox/Nightly.app/Con
 const source = dirname(dirname(dirname(exe)))
 const revision = source.match(/firefox-(\d+)/)?.[1] ?? 'unknown'
 const dest = join(homedir(), 'Library/Caches/swivel', `firefox-window-${revision}`, 'Nightly.app')
-const MARKER = 'swivel-patch-v10'
+const MARKER = 'swivel-patch-v11'
 const SWIVEL_NATIVE_TWEAKS = `
 // Swivel: native window tweaks, run from inside Firefox (js-ctypes, Objective-C runtime).
 // - Accessory app: no Dock icon or app switcher entry. Firefox makes itself a regular app at
 //   startup and whenever a window is shown, overriding LSUIElement.
 // - Transient windows: left out of Mission Control and App Exposé (the window is hidden behind
 //   Swivel, but those views show every window).
-function swivelNativeTweaks() {
+function swivelNativeTweaks(below) {
   try {
     const { ctypes } = ChromeUtils.importESModule('resource://gre/modules/ctypes.sys.mjs');
     const objc = ctypes.open('/usr/lib/libobjc.A.dylib');
@@ -36,6 +36,8 @@ function swivelNativeTweaks() {
     const sendLong = objc.declare('objc_msgSend', ctypes.default_abi, ctypes.bool, id, id, ctypes.long);
     const sendVoidULong = objc.declare('objc_msgSend', ctypes.default_abi, ctypes.void_t, id, id, ctypes.unsigned_long);
     const sendGetULong = objc.declare('objc_msgSend', ctypes.default_abi, ctypes.unsigned_long, id, id);
+    const sendGetBool = objc.declare('objc_msgSend', ctypes.default_abi, ctypes.bool, id, id);
+    const sendOrder = objc.declare('objc_msgSend', ctypes.default_abi, ctypes.void_t, id, id, ctypes.long, ctypes.long);
     const app = send(getClass('NSApplication'), sel('sharedApplication'));
     sendLong(app, sel('setActivationPolicy:'), 1); // NSApplicationActivationPolicyAccessory
     const windows = send(app, sel('windows'));
@@ -48,6 +50,8 @@ function swivelNativeTweaks() {
       const current = Number(sendGetULong(w, sel('collectionBehavior')));
       sendVoidULong(w, sel('setCollectionBehavior:'), (current & ~(1 << 2)) | (1 << 3) | (1 << 6));
       behaviors.push(Number(sendGetULong(w, sel('collectionBehavior'))));
+      // Directly below Swivel's window (NSWindowBelow = -1), never in front of it.
+      if (below && sendGetBool(w, sel('isVisible'))) sendOrder(w, sel('orderWindow:relativeTo:'), -1, below);
     }
     objc.close();
     return { windows: Number(count), behaviors };
@@ -93,12 +97,17 @@ patch(`${juggler}/protocol/PageHandler.js`, "  async ['Page.setZoom']({zoom}) {"
     if (minimized) win.minimize(); else win.restore();
   }
 
-  async ['Page.setWindowVisible']({visible}) {
-    // Hides the window entirely (no Dock thumbnail, unlike minimizing) or shows it again.
+  async ['Page.setWindowVisible']({visible, below}) {
+    // Hides the window entirely (no Dock thumbnail, unlike minimizing) or shows it again. Showing
+    // brings a window to the front, so it's put straight back below Swivel's window (below), in
+    // the same turn, before anything is drawn.
     const win = this._pageTarget._window;
     win.docShell.treeOwner.QueryInterface(Ci.nsIBaseWindow).visibility = visible;
-    // Showing a window makes Firefox a regular app again (Dock icon); switch it back.
-    if (visible) swivelNativeTweaks();
+    if (visible) swivelNativeTweaks(below);
+  }
+
+  async ['Page.orderBelow']({below}) {
+    swivelNativeTweaks(below);
   }
 
   async ['Page.nativeTweaks']() {
@@ -122,7 +131,10 @@ patch(`${juggler}/protocol/Protocol.js`, "    'setZoom': {", `    'moveWindow': 
       params: { width: t.Number, height: t.Number },
     },
     'setWindowVisible': {
-      params: { visible: t.Boolean },
+      params: { visible: t.Boolean, below: t.Optional(t.Number) },
+    },
+    'orderBelow': {
+      params: { below: t.Number },
     },
     'nativeTweaks': {
       params: {},

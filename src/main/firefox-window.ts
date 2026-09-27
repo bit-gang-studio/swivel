@@ -24,6 +24,7 @@ interface MirrorAddon {
   mirrorSetHidden(id: number, hidden: boolean): void
   mirrorDestroy(id: number): void
   mirrorFrames(id: number): number
+  windowNumber(handle: Buffer): number
   windowFrames(pid: number): { x: number; y: number; width: number; height: number; onScreen: boolean; layer: number }[]
 }
 
@@ -231,8 +232,11 @@ export class FirefoxWindow {
     this.expected = { x, y, width: this.viewport.width, height: this.viewport.height }
     const at = await session?.send('Page.moveWindow', { x, y }).catch((err: unknown) => String(err))
     if (at && typeof at === 'object' && 'x' in at) this.at = at as { x: number; y: number }
-    // Firefox resets its window behaviors when it shows a window; keep it out of Mission Control.
+    // Firefox resets its window behaviors when it shows a window; keep it out of Mission Control,
+    // and directly below Swivel's window.
     const tweaks = await session?.send('Page.nativeTweaks', {}).catch((err: unknown) => ({ result: String(err) }))
+    const below = this.swivelWindowNumber
+    if (below) await session?.send('Page.orderBelow', { below }).catch(() => {})
     const pid = firefoxPid(this.context)
     debugLog('placed', JSON.stringify({ tweaks: (tweaks as { result?: string } | undefined)?.result }), JSON.stringify({ asked: { x, y }, firefoxSays: at, swivelContent: content, rect: this.rect, viewport: this.viewport, macOS: pid ? mirror?.windowFrames(pid) : null }))
   }
@@ -247,7 +251,11 @@ export class FirefoxWindow {
     if (!pid || !mirror) return
     this.watchdog = setInterval(() => {
       if (this.windowHidden || this.moving || !this.expected || this.placing) return
-      if (++this.ticks % 4 === 0) void jugglerSession(this.page)?.send('Page.nativeTweaks', {}).catch(() => {})
+      if (++this.ticks % 4 === 0) {
+        void jugglerSession(this.page)?.send('Page.nativeTweaks', {}).catch(() => {})
+        const below = this.swivelWindowNumber
+        if (below) void jugglerSession(this.page)?.send('Page.orderBelow', { below }).catch(() => {})
+      }
       const frames = mirror.windowFrames(pid).filter((f) => f.layer === 0 && f.onScreen)
       const e = this.expected
       // Mission Control and App Exposé show windows scaled down; that's not a real move.
@@ -300,9 +308,22 @@ export class FirefoxWindow {
     if (this.windowHidden) return // Swivel itself is hidden; it comes back on show.
     void (async () => {
       await this.place()
-      await jugglerSession(this.page)?.send('Page.setWindowVisible', { visible: true }).catch(() => {})
+      await this.showBelow()
       await this.restartMirror()
     })()
+  }
+
+  /** Swivel's macOS window number: Firefox's window is always ordered directly below it. */
+  private get swivelWindowNumber(): number | undefined {
+    try {
+      return mirror?.windowNumber(this.win.getNativeWindowHandle())
+    } catch {
+      return undefined
+    }
+  }
+
+  private showBelow(): Promise<unknown> | undefined {
+    return jugglerSession(this.page)?.send('Page.setWindowVisible', { visible: true, below: this.swivelWindowNumber }).catch(() => {})
   }
 
   private windowHidden = false
@@ -316,7 +337,8 @@ export class FirefoxWindow {
   private async setWindowVisible(visible: boolean): Promise<void> {
     if (visible === !this.windowHidden) return
     this.windowHidden = !visible
-    await jugglerSession(this.page)?.send('Page.setWindowVisible', { visible }).catch(() => {})
+    if (visible) await this.showBelow()
+    else await jugglerSession(this.page)?.send('Page.setWindowVisible', { visible: false }).catch(() => {})
     if (!visible) return
     await this.place()
     await this.restartMirror()

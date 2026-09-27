@@ -228,7 +228,15 @@ static Napi::Value WindowFrames(const Napi::CallbackInfo& info) {
   return out;
 }
 
+// windowNumber(handle): the macOS window number of a Swivel window (for ordering others below it).
+static Napi::Value WindowNumber(const Napi::CallbackInfo& info) {
+  void* raw = *reinterpret_cast<void**>(info[0].As<Napi::Buffer<uint8_t>>().Data());
+  NSView* view = (__bridge NSView*)raw;
+  return Napi::Number::New(info.Env(), view.window.windowNumber);
+}
+
 void InitMirror(Napi::Env env, Napi::Object exports) {
+  exports.Set("windowNumber", Napi::Function::New(env, WindowNumber));
   exports.Set("windowFrames", Napi::Function::New(env, WindowFrames));
   exports.Set("screenCaptureAccess", Napi::Function::New(env, ScreenCaptureAccess));
   exports.Set("requestScreenCaptureAccess", Napi::Function::New(env, RequestScreenCaptureAccess));
