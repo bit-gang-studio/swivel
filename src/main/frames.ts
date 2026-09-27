@@ -10,6 +10,24 @@ export interface RawFrame {
   height: number
 }
 
+type RawSession = { send: (method: string, params: object) => Promise<{ data?: string }> }
+
+/**
+ * Firefox's own screenshot command, reached through Playwright's in-process server. Playwright's
+ * page.screenshot waits two animation frames and for fonts before every capture (about 33 ms of
+ * fixed cost); calling the command directly takes about 16 ms for a full 2x frame. Returns null
+ * if Playwright's internals change, and callers fall back to page.screenshot.
+ */
+function firefoxSession(page: Page): RawSession | null {
+  try {
+    const p = page as unknown as { _connection?: { toImpl?: (x: unknown) => { delegate?: { _session?: RawSession } } } }
+    const session = p._connection?.toImpl?.(page)?.delegate?._session
+    return session && typeof session.send === 'function' ? session : null
+  } catch {
+    return null
+  }
+}
+
 /** Lossless PNG while it's quick enough (sharp text); high-quality JPEG when a page makes PNG slow. */
 const PNG_BUDGET_MS = 25
 const PNG_RETRY_MS = 3000
@@ -53,6 +71,7 @@ export class FrameSource {
     this.size = size
     this.onFrame = onFrame
     this.pixelRatio = pixelRatio
+    this.raw = engine === 'firefox' ? firefoxSession(page) : null
   }
 
   /** A new page loaded: its cost is unknown, so go back to screenshots. */
@@ -94,7 +113,7 @@ export class FrameSource {
   private async settle(): Promise<void> {
     if (this.stopped || !this.casting) return
     try {
-      const data = await this.page.screenshot({ type: 'png', scale: 'device', animations: 'allow', caret: 'initial', timeout: 1500 })
+      const data = await this.capture('png')
       if (!this.stopped && this.casting) this.onFrame({ data, format: 'png', ...this.size })
     } catch {
       // Page busy or navigating; the next frame will do.
@@ -141,7 +160,34 @@ export class FrameSource {
     if (this.engine === 'chromium' || this.casting) void this.page.screencast.stop().catch(() => {})
   }
 
+  private raw: RawSession | null = null
+
+  /** One frame: JPEG while the page changes, lossless PNG once it settles. */
+  private async capture(format: 'png' | 'jpeg'): Promise<Buffer> {
+    if (this.raw) {
+      try {
+        const [x, y] = await this.page.evaluate(() => [window.scrollX, window.scrollY])
+        const r = await this.raw.send('Page.screenshot', {
+          mimeType: `image/${format}`,
+          ...(format === 'jpeg' ? { quality: 90 } : {}),
+          clip: { x, y, width: this.size.width, height: this.size.height }
+        })
+        if (r.data) return Buffer.from(r.data, 'base64')
+      } catch {
+        this.raw = null // Fall back for good.
+      }
+    }
+    return this.page.screenshot({
+      ...(format === 'png' ? { type: 'png' as const } : { type: 'jpeg' as const, quality: 90 }),
+      scale: 'device',
+      animations: 'allow',
+      caret: 'initial',
+      timeout: 1500
+    })
+  }
+
   private async poll(): Promise<void> {
+    if (this.raw) return this.pollFast()
     let last = ''
     let format: 'png' | 'jpeg' = 'png'
     let pngCost = 0 // Smoothed milliseconds per PNG frame.
@@ -160,7 +206,7 @@ export class FrameSource {
         })
         const took = performance.now() - started
         cost = cost ? cost * 0.5 + took * 0.5 : took
-        // Screencast frames are cropped (zoomed in) when the page renders above 1x, so it's only used at 1x.
+        // Screencast frames are cropped (zoomed in) above 1x, so it's only used at 1x.
         if (cost > CAST_AFTER_MS && this.pixelRatio <= 1) {
           // Screenshots can't keep up on this page: switch to the screencast straight away.
           if (!this.stopped) this.onFrame({ data, format: data[0] === 0x89 ? 'png' : 'jpeg', ...this.size })
@@ -186,6 +232,47 @@ export class FrameSource {
         }
       } catch {
         // The page is mid-load and can't paint yet, or it closed. Keep the last frame and retry soon.
+      }
+      const wait = this.unchanged >= IDLE_AFTER ? IDLE_MS : FRAME_MS - (performance.now() - started)
+      if (wait > 0) await this.sleep(wait)
+    }
+  }
+
+  /**
+   * Firefox fast path: direct JPEG frames while the page changes, then one lossless PNG as soon
+   * as a frame comes back unchanged (the page settled), so text is exact when you read it.
+   */
+  private async pollFast(): Promise<void> {
+    let last = ''
+    let sharp = true // The frame on screen is already lossless.
+    let cost = 0
+    while (!this.stopped && !this.casting) {
+      const started = performance.now()
+      try {
+        const data = await this.capture('jpeg')
+        const took = performance.now() - started
+        cost = cost ? cost * 0.5 + took * 0.5 : took
+        const hash = createHash('md5').update(data).digest('hex')
+        if (hash !== last) {
+          last = hash
+          this.unchanged = 0
+          sharp = false
+          if (!this.stopped) this.onFrame({ data, format: 'jpeg', ...this.size })
+          if (cost > CAST_AFTER_MS && this.pixelRatio <= 1) {
+            // Screenshots can't keep up while this page changes: use the screencast.
+            void this.cast()
+            return
+          }
+        } else {
+          this.unchanged++
+          if (!sharp) {
+            sharp = true
+            const png = await this.capture('png')
+            if (!this.stopped) this.onFrame({ data: png, format: 'png', ...this.size })
+          }
+        }
+      } catch {
+        // Mid-load or closed; retry soon.
       }
       const wait = this.unchanged >= IDLE_AFTER ? IDLE_MS : FRAME_MS - (performance.now() - started)
       if (wait > 0) await this.sleep(wait)
