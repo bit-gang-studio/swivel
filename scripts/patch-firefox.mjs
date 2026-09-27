@@ -16,7 +16,7 @@ const exe = firefox.executablePath() // .../firefox-NNNN/firefox/Nightly.app/Con
 const source = dirname(dirname(dirname(exe)))
 const revision = source.match(/firefox-(\d+)/)?.[1] ?? 'unknown'
 const dest = join(homedir(), 'Library/Caches/swivel', `firefox-window-${revision}`, 'Nightly.app')
-const MARKER = 'swivel-patch-v1'
+const MARKER = 'swivel-patch-v2'
 const run = (cmd, args, opts = {}) => execFileSync(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], ...opts }).toString()
 
 if (!existsSync(exe)) {
@@ -54,6 +54,11 @@ patch(`${juggler}/protocol/PageHandler.js`, "  async ['Page.setZoom']({zoom}) {"
     if (minimized) win.minimize(); else win.restore();
   }
 
+  async ['Page.setWindowSize']({width, height}) {
+    // Resizes the window only; the page keeps its viewport size (the browser stack scrolls).
+    this._pageTarget._window.resizeTo(width, height);
+  }
+
   async ['Page.setZoom']({zoom}) {`)
 patch(`${juggler}/protocol/Protocol.js`, "    'setZoom': {", `    'moveWindow': {
       params: { x: t.Number, y: t.Number },
@@ -61,6 +66,9 @@ patch(`${juggler}/protocol/Protocol.js`, "    'setZoom': {", `    'moveWindow': 
     },
     'setWindowMinimized': {
       params: { minimized: t.Boolean },
+    },
+    'setWindowSize': {
+      params: { width: t.Number, height: t.Number },
     },
     'setZoom': {`)
 patch(`${juggler}/TargetRegistry.js`, '    const features = "chrome,dialog=no,all";', `    // Swivel: borderless windows with no browser UI, placed behind Swivel and captured.

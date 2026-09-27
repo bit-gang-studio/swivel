@@ -78,7 +78,7 @@ export class FirefoxWindow {
   private rect?: ViewRect
   private id?: number
   private visible = false
-  /** Minimized because the size doesn't fit (the page is streamed meanwhile). */
+  /** Shrunk to fit behind Swivel because the size is too big (the page is streamed meanwhile). */
   private suspended = false
   private listeners: [string, () => void][] = []
   /** Called when the Swivel window resizes, since that can change whether the page fits. */
@@ -126,15 +126,21 @@ export class FirefoxWindow {
   /** Keep the Firefox window directly behind the page area, so it's always covered by Swivel. */
   private async place(): Promise<void> {
     const content = this.win.getContentBounds()
+    const session = jugglerSession(this.page)
+    if (this.suspended) {
+      // Shrunk to Swivel's content area, directly behind it.
+      await session?.send('Page.setWindowSize', { width: content.width, height: content.height }).catch(() => {})
+      await session?.send('Page.moveWindow', { x: content.x, y: content.y }).catch(() => {})
+      return
+    }
+    await session?.send('Page.setWindowSize', { width: this.viewport.width, height: this.viewport.height }).catch(() => {})
     const box = this.rect ?? { x: 0, y: 0, width: content.width, height: content.height }
     const x = Math.round(content.x + box.x + box.width / 2 - this.viewport.width / 2)
     const y = Math.round(content.y + box.y + box.height / 2 - this.viewport.height / 2)
-    const session = jugglerSession(this.page)
     await session?.send('Page.moveWindow', { x, y }).catch(() => {})
   }
 
   private minimize(minimized: boolean): void {
-    if (!minimized && this.suspended) return // Stays minimized while the size doesn't fit.
     void jugglerSession(this.page)?.send('Page.setWindowMinimized', { minimized }).catch(() => {})
     if (!minimized) void this.place()
   }
@@ -148,18 +154,20 @@ export class FirefoxWindow {
     return viewport.width <= content.width && viewport.height <= content.height
   }
 
-  /** Too big to hide: minimize the real window; the page is streamed meanwhile. */
+  /**
+   * Too big to hide: shrink the real window to fit behind Swivel while the page keeps its full
+   * viewport. The page is streamed from it meanwhile. (Minimizing would stop input.)
+   */
   suspend(): void {
     if (this.suspended) return
     this.suspended = true
     this.layout()
-    void jugglerSession(this.page)?.send('Page.setWindowMinimized', { minimized: true }).catch(() => {})
+    void this.place()
   }
 
   resume(): void {
     if (!this.suspended) return
     this.suspended = false
-    void jugglerSession(this.page)?.send('Page.setWindowMinimized', { minimized: false }).catch(() => {})
     void this.place()
     this.layout()
   }
