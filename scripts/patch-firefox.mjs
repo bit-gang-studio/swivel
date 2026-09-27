@@ -16,7 +16,7 @@ const exe = firefox.executablePath() // .../firefox-NNNN/firefox/Nightly.app/Con
 const source = dirname(dirname(dirname(exe)))
 const revision = source.match(/firefox-(\d+)/)?.[1] ?? 'unknown'
 const dest = join(homedir(), 'Library/Caches/swivel', `firefox-window-${revision}`, 'Nightly.app')
-const MARKER = 'swivel-patch-v12'
+const MARKER = 'swivel-patch-v13'
 const SWIVEL_NATIVE_TWEAKS = `
 // Swivel: native window tweaks, run from inside Firefox (js-ctypes, Objective-C runtime).
 // - Accessory app: no Dock icon or app switcher entry. Firefox makes itself a regular app at
@@ -24,7 +24,9 @@ const SWIVEL_NATIVE_TWEAKS = `
 // - Click-through windows with no shadow.
 // - Transient windows: left out of Mission Control and App Exposé (the window is hidden behind
 //   Swivel, but those views show every window).
-function swivelNativeTweaks(below) {
+// - park: {x, y} (Cocoa screen points) moves visible windows there directly. Firefox's own move
+//   keeps part of the window on screen; setFrameOrigin: doesn't.
+function swivelNativeTweaks(below, park) {
   try {
     const { ctypes } = ChromeUtils.importESModule('resource://gre/modules/ctypes.sys.mjs');
     const objc = ctypes.open('/usr/lib/libobjc.A.dylib');
@@ -38,6 +40,8 @@ function swivelNativeTweaks(below) {
     const sendVoidULong = objc.declare('objc_msgSend', ctypes.default_abi, ctypes.void_t, id, id, ctypes.unsigned_long);
     const sendGetULong = objc.declare('objc_msgSend', ctypes.default_abi, ctypes.unsigned_long, id, id);
     const sendGetBool = objc.declare('objc_msgSend', ctypes.default_abi, ctypes.bool, id, id);
+    const NSPoint = new ctypes.StructType('NSPoint', [{ x: ctypes.double }, { y: ctypes.double }]);
+    const sendPoint = objc.declare('objc_msgSend', ctypes.default_abi, ctypes.void_t, id, id, NSPoint);
     const sendOrder = objc.declare('objc_msgSend', ctypes.default_abi, ctypes.void_t, id, id, ctypes.long, ctypes.long);
     const app = send(getClass('NSApplication'), sel('sharedApplication'));
     sendLong(app, sel('setActivationPolicy:'), 1); // NSApplicationActivationPolicyAccessory
@@ -55,6 +59,7 @@ function swivelNativeTweaks(below) {
       sendVoidULong(w, sel('setIgnoresMouseEvents:'), 1);
       sendVoidULong(w, sel('setHasShadow:'), 0);
       // Directly below Swivel's window (NSWindowBelow = -1), never in front of it.
+      if (park && sendGetBool(w, sel('isVisible'))) sendPoint(w, sel('setFrameOrigin:'), new NSPoint(park.x, park.y));
       if (below && sendGetBool(w, sel('isVisible'))) sendOrder(w, sel('orderWindow:relativeTo:'), -1, below);
     }
     objc.close();
@@ -114,8 +119,8 @@ patch(`${juggler}/protocol/PageHandler.js`, "  async ['Page.setZoom']({zoom}) {"
     swivelNativeTweaks(below);
   }
 
-  async ['Page.nativeTweaks']() {
-    return { result: JSON.stringify(swivelNativeTweaks()) };
+  async ['Page.nativeTweaks']({parkX}) {
+    return { result: JSON.stringify(swivelNativeTweaks(undefined, parkX === undefined ? undefined : { x: parkX, y: 0 })) };
   }
 
   async ['Page.setWindowSize']({width, height}) {
@@ -141,11 +146,11 @@ patch(`${juggler}/protocol/Protocol.js`, "    'setZoom': {", `    'moveWindow': 
       params: { below: t.Number },
     },
     'nativeTweaks': {
-      params: {},
+      params: { parkX: t.Optional(t.Number) },
       returns: { result: t.String },
     },
     'setZoom': {`)
-patch(`${juggler}/TargetRegistry.js`, '    const features = "chrome,dialog=no,all";', `    // Swivel: borderless windows with no browser UI, placed behind Swivel and captured.
+patch(`${juggler}/TargetRegistry.js`, '    const features = "chrome,dialog=no,all";', `    // Swivel: borderless windows with no browser UI, parked off-screen and captured.
     const chromeless = Services.prefs.getBoolPref("swivel.chromeless", false);
     const at = chromeless ? ",screenX=" + Services.prefs.getIntPref("swivel.windowX", 0) + ",screenY=" + Services.prefs.getIntPref("swivel.windowY", 0) : "";
     const features = chromeless ? "chrome,dialog=no,all,titlebar=no,toolbar=no,menubar=no,location=no,status=no" + at : "chrome,dialog=no,all";`)
@@ -154,7 +159,7 @@ patch(`${juggler}/TargetRegistry.js`, `    await waitForWindowReady(window);
     if (chromeless) {
       const toolbox = window.document.getElementById('navigator-toolbox');
       if (toolbox) toolbox.collapsed = true;
-      swivelNativeTweaks();
+      swivelNativeTweaks(undefined, { x: Services.prefs.getIntPref("swivel.windowX", 0), y: 0 });
     }
     if (window.gBrowser.browsers.length !== 1)`)
 

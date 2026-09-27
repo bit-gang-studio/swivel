@@ -208,10 +208,14 @@ export class FirefoxWindow {
     this.expected = { x, y, width: this.viewport.width, height: this.viewport.height }
     const at = await session?.send('Page.moveWindow', { x, y }).catch((err: unknown) => String(err))
     if (at && typeof at === 'object' && 'x' in at) this.at = at as { x: number; y: number }
-    // Firefox resets its window behaviors when it shows a window: keep it click-through and out of
-    // Mission Control.
-    const tweaks = await session?.send('Page.nativeTweaks', {}).catch((err: unknown) => ({ result: String(err) }))
+    // Firefox's move keeps part of the window on screen, so the patch moves it natively too
+    // (parkX). Firefox also resets its window behaviors when it shows a window: keep it
+    // click-through and out of Mission Control.
+    const tweaks = await session?.send('Page.nativeTweaks', { parkX: x }).catch((err: unknown) => ({ result: String(err) }))
     const pid = firefoxPid(this.context)
+    // Where macOS really has it, for finding the window to mirror.
+    const real = pid ? mirror?.windowFrames(pid).find((f) => f.layer === 0 && f.x >= x - 2 && f.width === this.viewport.width) : undefined
+    if (real) this.at = { x: real.x, y: real.y }
     debugLog('placed', JSON.stringify({ tweaks: (tweaks as { result?: string } | undefined)?.result }), JSON.stringify({ asked: { x, y }, firefoxSays: at, viewport: this.viewport, macOS: pid ? mirror?.windowFrames(pid) : null }))
   }
 
@@ -225,12 +229,13 @@ export class FirefoxWindow {
     if (!pid || !mirror) return
     this.watchdog = setInterval(() => {
       if (!this.expected || this.placing) return
-      if (++this.ticks % 4 === 0) void jugglerSession(this.page)?.send('Page.nativeTweaks', {}).catch(() => {})
+      if (++this.ticks % 4 === 0) void jugglerSession(this.page)?.send('Page.nativeTweaks', { parkX: this.expected.x }).catch(() => {})
       const frames = mirror.windowFrames(pid).filter((f) => f.layer === 0 && f.onScreen)
       const e = this.expected
       // Mission Control and App Exposé show windows scaled down; that's not a real move.
       const fullSize = frames.filter((f) => Math.abs(f.width - e.width) <= 2 && Math.abs(f.height - e.height) <= 2)
-      const inPlace = fullSize.some((f) => Math.abs(f.x - e.x) <= 2 && Math.abs(f.y - e.y) <= 2)
+      // Only off-screen matters; the height on screen doesn't.
+      const inPlace = fullSize.some((f) => f.x >= e.x - 2)
       if (!inPlace && fullSize.length) {
         debugLog('drifted', JSON.stringify({ expected: e, macOS: frames }))
         void this.place()
