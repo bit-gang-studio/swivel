@@ -18,7 +18,7 @@ import { jugglerSession } from './frames'
 interface MirrorAddon {
   screenCaptureAccess(): boolean
   requestScreenCaptureAccess(): boolean
-  mirrorCreate(parent: Buffer, pid: number, width: number, height: number, cb: (err: string | null, id: number | null) => void): void
+  mirrorCreate(parent: Buffer, pid: number, x: number, y: number, width: number, height: number, cb: (err: string | null, id: number | null) => void): void
   mirrorSetFrame(id: number, x: number, y: number, w: number, h: number): void
   mirrorResizeSource(id: number, w: number, h: number): void
   mirrorSetHidden(id: number, hidden: boolean): void
@@ -110,11 +110,13 @@ export class FirefoxWindow {
 
   /** Find and mirror the Firefox window. Retries while macOS lists the new window. */
   async start(): Promise<boolean> {
-    // Hide the window behind Swivel first, whatever happens next. Launching Firefox can bring it
-    // forward, so put Swivel back on top.
+    // The patched Firefox keeps its windows hidden. Put this one behind Swivel, make sure Swivel
+    // is on top, then show it (so it can be captured).
     await this.place()
     this.win.focus()
     if (process.platform === 'darwin') app.focus({ steal: true })
+    await jugglerSession(this.page)?.send('Page.setWindowVisible', { visible: true }).catch(() => {})
+    await new Promise((r) => setTimeout(r, 100))
     if (!(await this.connect())) return false
     debugLog('mirroring Firefox window', JSON.stringify(this.viewport))
     this.layout()
@@ -131,7 +133,7 @@ export class FirefoxWindow {
     let lastError = ''
     for (let attempt = 0; attempt < 30 && this.id === undefined; attempt++) {
       this.id = await new Promise<number | undefined>((resolve) =>
-        mirror.mirrorCreate(this.win.getNativeWindowHandle(), pid, this.viewport.width, this.viewport.height, (err, id) => {
+        mirror.mirrorCreate(this.win.getNativeWindowHandle(), pid, this.at.x, this.at.y, this.viewport.width, this.viewport.height, (err, id) => {
           if (err) lastError = err
           resolve(err ? undefined : (id ?? undefined))
         })
@@ -161,10 +163,13 @@ export class FirefoxWindow {
     const x = Math.round(content.x + box.x + box.width / 2 - this.viewport.width / 2)
     const y = Math.round(content.y + box.y + box.height / 2 - this.viewport.height / 2)
     const at = await session?.send('Page.moveWindow', { x, y }).catch((err: unknown) => String(err))
+    if (at && typeof at === 'object' && 'x' in at) this.at = at as { x: number; y: number }
     debugLog('placed Firefox window', JSON.stringify({ asked: { x, y }, got: at, content }))
   }
 
   private windowHidden = false
+  /** Where the window actually is (screen points), for finding it to mirror. */
+  private at = { x: 0, y: 0 }
 
   /**
    * While Swivel is minimized or hidden, the real window would show on its own, so hide it
@@ -181,6 +186,7 @@ export class FirefoxWindow {
 
   private async restartMirror(): Promise<void> {
     if (this.id !== undefined) mirror?.mirrorDestroy(this.id)
+    await new Promise((r) => setTimeout(r, 100))
     this.id = undefined
     await this.connect()
     this.layout()

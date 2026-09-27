@@ -66,16 +66,18 @@ static Napi::Value RequestScreenCaptureAccess(const Napi::CallbackInfo& info) {
   return Napi::Boolean::New(info.Env(), CGRequestScreenCaptureAccess());
 }
 
-// mirrorCreate(parentHandle, pid, width, height, callback(error, id)): finds pid's window of
-// that size (points), then starts capturing it into a hidden view in the parent window.
+// mirrorCreate(parentHandle, pid, x, y, width, height, callback(error, id)): finds pid's window
+// at that screen position (points, top-left origin; Swivel just placed it there), then starts
+// capturing it into a hidden view in the parent window.
 static Napi::Value MirrorCreate(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   if (@available(macOS 12.3, *)) {
     void* raw = *reinterpret_cast<void**>(info[0].As<Napi::Buffer<uint8_t>>().Data());
     NSView* parent = (__bridge NSView*)raw;
     pid_t pid = info[1].As<Napi::Number>().Int32Value();
-    double w = info[2].As<Napi::Number>().DoubleValue(), h = info[3].As<Napi::Number>().DoubleValue();
-    auto done = Napi::ThreadSafeFunction::New(env, info[4].As<Napi::Function>(), "swivel-mirror-create", 0, 1);
+    double x = info[2].As<Napi::Number>().DoubleValue(), y = info[3].As<Napi::Number>().DoubleValue();
+    double w = info[4].As<Napi::Number>().DoubleValue(), h = info[5].As<Napi::Number>().DoubleValue();
+    auto done = Napi::ThreadSafeFunction::New(env, info[6].As<Napi::Function>(), "swivel-mirror-create", 0, 1);
     int id = nextMirror++;
     CGFloat scale = parent.window.backingScaleFactor ?: 2;
 
@@ -87,14 +89,16 @@ static Napi::Value MirrorCreate(const Napi::CallbackInfo& info) {
     [parent addSubview:view positioned:NSWindowAbove relativeTo:nil];
 
     [SCShareableContent getShareableContentExcludingDesktopWindows:NO onScreenWindowsOnly:NO completionHandler:^(SCShareableContent* content, NSError* error) {
-      // Firefox's main window: normal layer, closest to the expected size (sizes can differ by
-      // rounding or display scaling), ignoring its small helper windows.
+      // The on-screen window of that process at the position Swivel placed it (other Firefox
+      // windows are hidden), ignoring small helper windows.
       SCWindow* best = nil;
       double bestScore = INFINITY;
       for (SCWindow* win in content.windows) {
-        if (win.owningApplication.processID != pid || win.windowLayer != 0) continue;
+        if (win.owningApplication.processID != pid || win.windowLayer != 0 || !win.isOnScreen) continue;
         if (win.frame.size.width < 100 || win.frame.size.height < 100) continue;
-        double score = fabs(win.frame.size.width - w) + fabs(win.frame.size.height - h);
+        double score = fabs(win.frame.origin.x - x) + fabs(win.frame.origin.y - y);
+        if (score > 4) continue;
+        score += (fabs(win.frame.size.width - w) + fabs(win.frame.size.height - h)) / 1000;
         if (score < bestScore) { best = win; bestScore = score; }
       }
       if (!best) {

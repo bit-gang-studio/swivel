@@ -16,7 +16,7 @@ const exe = firefox.executablePath() // .../firefox-NNNN/firefox/Nightly.app/Con
 const source = dirname(dirname(dirname(exe)))
 const revision = source.match(/firefox-(\d+)/)?.[1] ?? 'unknown'
 const dest = join(homedir(), 'Library/Caches/swivel', `firefox-window-${revision}`, 'Nightly.app')
-const MARKER = 'swivel-patch-v4'
+const MARKER = 'swivel-patch-v5'
 const run = (cmd, args, opts = {}) => execFileSync(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], ...opts }).toString()
 
 if (!existsSync(exe)) {
@@ -83,9 +83,18 @@ patch(`${juggler}/protocol/Protocol.js`, "    'setZoom': {", `    'moveWindow': 
 patch(`${juggler}/TargetRegistry.js`, '    const features = "chrome,dialog=no,all";', `    // Swivel: borderless windows with no browser UI, placed behind Swivel and captured.
     const chromeless = Services.prefs.getBoolPref("swivel.chromeless", false);
     const features = chromeless ? "chrome,dialog=no,all,titlebar=no,toolbar=no,menubar=no,location=no,status=no" : "chrome,dialog=no,all";`)
+patch(`${juggler}/TargetRegistry.js`, `      if (!domWindow.gBrowser)
+        return;
+      const tabContainer = domWindow.gBrowser.tabContainer;`, `      if (!domWindow.gBrowser)
+        return;
+      // Swivel: keep every browser window hidden until Swivel has placed it (no flashes).
+      if (Services.prefs.getBoolPref("swivel.chromeless", false))
+        domWindow.docShell.treeOwner.QueryInterface(Ci.nsIBaseWindow).visibility = false;
+      const tabContainer = domWindow.gBrowser.tabContainer;`)
 patch(`${juggler}/TargetRegistry.js`, `    await waitForWindowReady(window);
     if (window.gBrowser.browsers.length !== 1)`, `    await waitForWindowReady(window);
     if (chromeless) {
+      window.docShell.treeOwner.QueryInterface(Ci.nsIBaseWindow).visibility = false;
       const toolbox = window.document.getElementById('navigator-toolbox');
       if (toolbox) toolbox.collapsed = true;
       // No Dock icon or app switcher entry: make Firefox an accessory app. Firefox turns itself
