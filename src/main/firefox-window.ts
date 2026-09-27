@@ -25,6 +25,8 @@ interface MirrorAddon {
   mirrorDestroy(id: number): void
 }
 
+const debugLog = (...args: unknown[]) => process.env.SWIVEL_DEBUG && console.log('[swivel] firefox', ...args)
+
 const addon = webkitAddon as unknown as Partial<MirrorAddon> | null
 const mirror: MirrorAddon | null = addon && typeof addon.mirrorCreate === 'function' ? (addon as MirrorAddon) : null
 
@@ -106,25 +108,38 @@ export class FirefoxWindow {
 
   /** Find and mirror the Firefox window. Retries while macOS lists the new window. */
   async start(): Promise<boolean> {
-    const pid = firefoxPid(this.context)
-    if (!mirror || !pid) return false
+    // Hide the window behind Swivel first, whatever happens next. Launching Firefox can bring it
+    // forward, so put Swivel back on top.
     await this.place()
-    for (let attempt = 0; attempt < 20 && this.id === undefined; attempt++) {
+    this.win.focus()
+    if (process.platform === 'darwin') app.focus({ steal: true })
+    const pid = firefoxPid(this.context)
+    if (!mirror || !pid) {
+      console.log('Swivel: Firefox window mirror unavailable (no process id); streaming instead')
+      return false
+    }
+    let lastError = ''
+    for (let attempt = 0; attempt < 30 && this.id === undefined; attempt++) {
       this.id = await new Promise<number | undefined>((resolve) =>
-        mirror.mirrorCreate(this.win.getNativeWindowHandle(), pid, this.viewport.width, this.viewport.height, (err, id) => resolve(err ? undefined : (id ?? undefined)))
+        mirror.mirrorCreate(this.win.getNativeWindowHandle(), pid, this.viewport.width, this.viewport.height, (err, id) => {
+          if (err) lastError = err
+          resolve(err ? undefined : (id ?? undefined))
+        })
       )
       if (this.id === undefined) await new Promise((r) => setTimeout(r, 150))
     }
-    if (this.id === undefined) return false
+    if (this.id === undefined) {
+      console.log(`Swivel: couldn't mirror the Firefox window (${lastError}); streaming instead`)
+      return false
+    }
+    debugLog('mirroring Firefox window', JSON.stringify(this.viewport))
     this.layout()
-    // Launching Firefox can bring it forward; put Swivel back on top so it covers the window.
-    this.win.focus()
-    if (process.platform === 'darwin') app.focus({ steal: true })
     return true
   }
 
   /** Keep the Firefox window directly behind the page area, so it's always covered by Swivel. */
   private async place(): Promise<void> {
+    if (this.win.isDestroyed()) return
     const content = this.win.getContentBounds()
     const session = jugglerSession(this.page)
     if (this.suspended) {
@@ -137,7 +152,8 @@ export class FirefoxWindow {
     const box = this.rect ?? { x: 0, y: 0, width: content.width, height: content.height }
     const x = Math.round(content.x + box.x + box.width / 2 - this.viewport.width / 2)
     const y = Math.round(content.y + box.y + box.height / 2 - this.viewport.height / 2)
-    await session?.send('Page.moveWindow', { x, y }).catch(() => {})
+    const at = await session?.send('Page.moveWindow', { x, y }).catch((err: unknown) => String(err))
+    debugLog('placed Firefox window', JSON.stringify({ asked: { x, y }, got: at, content }))
   }
 
   private minimize(minimized: boolean): void {

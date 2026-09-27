@@ -105,6 +105,8 @@ export class StreamedView implements PageView {
   private win?: BrowserWindow
   /** Real-window Firefox on macOS, when available (see firefox-window.ts). */
   private window?: FirefoxWindow
+  /** A real window whose mirror failed: kept hidden behind Swivel while the page is streamed. */
+  private hiddenWindow?: FirefoxWindow
   private rect?: ViewRect
 
   constructor(engine: EngineId, emit: Emit, win?: BrowserWindow) {
@@ -170,7 +172,11 @@ export class StreamedView implements PageView {
         window.onFitChange = () => this.chooseRendering()
         if (this.visible) window.show()
         this.chooseRendering()
-      } else window.destroy()
+      } else {
+        // No mirror: keep the real window shrunk behind Swivel and stream frames from it.
+        window.suspend()
+        this.hiddenWindow = window
+      }
     }
     page.on('console', (msg) => this.emit('console', { engine: this.engine, type: msg.type(), text: msg.text() }))
     page.on('pageerror', (err) => this.emit('console', { engine: this.engine, type: 'error', text: err.message }))
@@ -381,6 +387,8 @@ export class StreamedView implements PageView {
     this.hide()
     this.window?.destroy()
     this.window = undefined
+    this.hiddenWindow?.destroy()
+    this.hiddenWindow = undefined
     const page = this.page
     this.page = undefined
     void page?.close().catch(() => {})

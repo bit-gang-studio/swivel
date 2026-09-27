@@ -87,11 +87,15 @@ static Napi::Value MirrorCreate(const Napi::CallbackInfo& info) {
     [parent addSubview:view positioned:NSWindowAbove relativeTo:nil];
 
     [SCShareableContent getShareableContentExcludingDesktopWindows:NO onScreenWindowsOnly:NO completionHandler:^(SCShareableContent* content, NSError* error) {
+      // Firefox's main window: normal layer, closest to the expected size (sizes can differ by
+      // rounding or display scaling), ignoring its small helper windows.
       SCWindow* best = nil;
+      double bestScore = INFINITY;
       for (SCWindow* win in content.windows) {
-        if (win.owningApplication.processID != pid) continue;
-        if (fabs(win.frame.size.width - w) > 2 || fabs(win.frame.size.height - h) > 2) continue;
-        if (!best || win.windowLayer < best.windowLayer) best = win;
+        if (win.owningApplication.processID != pid || win.windowLayer != 0) continue;
+        if (win.frame.size.width < 100 || win.frame.size.height < 100) continue;
+        double score = fabs(win.frame.size.width - w) + fabs(win.frame.size.height - h);
+        if (score < bestScore) { best = win; bestScore = score; }
       }
       if (!best) {
         std::string msg = error ? error.localizedDescription.UTF8String : "Firefox window not found";
