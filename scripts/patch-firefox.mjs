@@ -16,7 +16,7 @@ const exe = firefox.executablePath() // .../firefox-NNNN/firefox/Nightly.app/Con
 const source = dirname(dirname(dirname(exe)))
 const revision = source.match(/firefox-(\d+)/)?.[1] ?? 'unknown'
 const dest = join(homedir(), 'Library/Caches/swivel', `firefox-window-${revision}`, 'Nightly.app')
-const MARKER = 'swivel-patch-v3'
+const MARKER = 'swivel-patch-v4'
 const run = (cmd, args, opts = {}) => execFileSync(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], ...opts }).toString()
 
 if (!existsSync(exe)) {
@@ -88,6 +88,22 @@ patch(`${juggler}/TargetRegistry.js`, `    await waitForWindowReady(window);
     if (chromeless) {
       const toolbox = window.document.getElementById('navigator-toolbox');
       if (toolbox) toolbox.collapsed = true;
+      // No Dock icon or app switcher entry: make Firefox an accessory app. Firefox turns itself
+      // into a regular app at startup, overriding LSUIElement, so this runs from inside it.
+      try {
+        const { ctypes } = ChromeUtils.importESModule('resource://gre/modules/ctypes.sys.mjs');
+        const objc = ctypes.open('/usr/lib/libobjc.A.dylib');
+        const id = ctypes.voidptr_t;
+        const getClass = objc.declare('objc_getClass', ctypes.default_abi, id, ctypes.char.ptr);
+        const sel = objc.declare('sel_registerName', ctypes.default_abi, id, ctypes.char.ptr);
+        const send = objc.declare('objc_msgSend', ctypes.default_abi, id, id, id);
+        const sendLong = objc.declare('objc_msgSend', ctypes.default_abi, ctypes.bool, id, id, ctypes.long);
+        const app = send(getClass('NSApplication'), sel('sharedApplication'));
+        sendLong(app, sel('setActivationPolicy:'), 1); // NSApplicationActivationPolicyAccessory
+        objc.close();
+      } catch (e) {
+        dump('swivel: could not hide Dock icon: ' + e + String.fromCharCode(10));
+      }
     }
     if (window.gBrowser.browsers.length !== 1)`)
 
