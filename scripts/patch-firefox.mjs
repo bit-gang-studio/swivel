@@ -16,7 +16,40 @@ const exe = firefox.executablePath() // .../firefox-NNNN/firefox/Nightly.app/Con
 const source = dirname(dirname(dirname(exe)))
 const revision = source.match(/firefox-(\d+)/)?.[1] ?? 'unknown'
 const dest = join(homedir(), 'Library/Caches/swivel', `firefox-window-${revision}`, 'Nightly.app')
-const MARKER = 'swivel-patch-v8'
+const MARKER = 'swivel-patch-v9'
+const SWIVEL_NATIVE_TWEAKS = `
+// Swivel: native window tweaks, run from inside Firefox (js-ctypes, Objective-C runtime).
+// - Accessory app: no Dock icon or app switcher entry. Firefox makes itself a regular app at
+//   startup and whenever a window is shown, overriding LSUIElement.
+// - Transient windows: left out of Mission Control and App Exposé (the window is hidden behind
+//   Swivel, but those views show every window).
+function swivelNativeTweaks() {
+  try {
+    const { ctypes } = ChromeUtils.importESModule('resource://gre/modules/ctypes.sys.mjs');
+    const objc = ctypes.open('/usr/lib/libobjc.A.dylib');
+    const id = ctypes.voidptr_t;
+    const getClass = objc.declare('objc_getClass', ctypes.default_abi, id, ctypes.char.ptr);
+    const sel = objc.declare('sel_registerName', ctypes.default_abi, id, ctypes.char.ptr);
+    const send = objc.declare('objc_msgSend', ctypes.default_abi, id, id, id);
+    const sendIndex = objc.declare('objc_msgSend', ctypes.default_abi, id, id, id, ctypes.unsigned_long);
+    const sendCount = objc.declare('objc_msgSend', ctypes.default_abi, ctypes.unsigned_long, id, id);
+    const sendLong = objc.declare('objc_msgSend', ctypes.default_abi, ctypes.bool, id, id, ctypes.long);
+    const sendVoidULong = objc.declare('objc_msgSend', ctypes.default_abi, ctypes.void_t, id, id, ctypes.unsigned_long);
+    const app = send(getClass('NSApplication'), sel('sharedApplication'));
+    sendLong(app, sel('setActivationPolicy:'), 1); // NSApplicationActivationPolicyAccessory
+    const windows = send(app, sel('windows'));
+    const count = sendCount(windows, sel('count'));
+    for (let i = 0; i < count; i++) {
+      const w = sendIndex(windows, sel('objectAtIndex:'), i);
+      // Transient (1 << 3) | IgnoresCycle (1 << 6)
+      sendVoidULong(w, sel('setCollectionBehavior:'), (1 << 3) | (1 << 6));
+    }
+    objc.close();
+  } catch (e) {
+    dump('swivel: native tweaks failed: ' + e + String.fromCharCode(10));
+  }
+}
+`
 const run = (cmd, args, opts = {}) => execFileSync(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], ...opts }).toString()
 
 if (!existsSync(exe)) {
@@ -59,19 +92,7 @@ patch(`${juggler}/protocol/PageHandler.js`, "  async ['Page.setZoom']({zoom}) {"
     const win = this._pageTarget._window;
     win.docShell.treeOwner.QueryInterface(Ci.nsIBaseWindow).visibility = visible;
     // Showing a window makes Firefox a regular app again (Dock icon); switch it back.
-    if (visible) {
-      try {
-        const { ctypes } = ChromeUtils.importESModule('resource://gre/modules/ctypes.sys.mjs');
-        const objc = ctypes.open('/usr/lib/libobjc.A.dylib');
-        const id = ctypes.voidptr_t;
-        const getClass = objc.declare('objc_getClass', ctypes.default_abi, id, ctypes.char.ptr);
-        const sel = objc.declare('sel_registerName', ctypes.default_abi, id, ctypes.char.ptr);
-        const send = objc.declare('objc_msgSend', ctypes.default_abi, id, id, id);
-        const sendLong = objc.declare('objc_msgSend', ctypes.default_abi, ctypes.bool, id, id, ctypes.long);
-        sendLong(send(getClass('NSApplication'), sel('sharedApplication')), sel('setActivationPolicy:'), 1);
-        objc.close();
-      } catch (e) {}
-    }
+    if (visible) swivelNativeTweaks();
   }
 
   async ['Page.setWindowSize']({width, height}) {
@@ -103,40 +124,17 @@ patch(`${juggler}/TargetRegistry.js`, `    await waitForWindowReady(window);
     if (chromeless) {
       const toolbox = window.document.getElementById('navigator-toolbox');
       if (toolbox) toolbox.collapsed = true;
-      // No Dock icon or app switcher entry: make Firefox an accessory app. Firefox turns itself
-      // into a regular app at startup, overriding LSUIElement, so this runs from inside it.
-      try {
-        const { ctypes } = ChromeUtils.importESModule('resource://gre/modules/ctypes.sys.mjs');
-        const objc = ctypes.open('/usr/lib/libobjc.A.dylib');
-        const id = ctypes.voidptr_t;
-        const getClass = objc.declare('objc_getClass', ctypes.default_abi, id, ctypes.char.ptr);
-        const sel = objc.declare('sel_registerName', ctypes.default_abi, id, ctypes.char.ptr);
-        const send = objc.declare('objc_msgSend', ctypes.default_abi, id, id, id);
-        const sendLong = objc.declare('objc_msgSend', ctypes.default_abi, ctypes.bool, id, id, ctypes.long);
-        const app = send(getClass('NSApplication'), sel('sharedApplication'));
-        sendLong(app, sel('setActivationPolicy:'), 1); // NSApplicationActivationPolicyAccessory
-        objc.close();
-      } catch (e) {
-        dump('swivel: could not hide Dock icon: ' + e + String.fromCharCode(10));
-      }
+      swivelNativeTweaks();
     }
     if (window.gBrowser.browsers.length !== 1)`)
 
 patch(`${juggler}/TargetRegistry.js`, `    Services.wm.addListener({ onOpenWindow, onCloseWindow });`, `    // Swivel: drop the Dock icon as soon as Juggler starts, not only when a window opens.
-    if (Services.prefs.getBoolPref("swivel.chromeless", false)) {
-      try {
-        const { ctypes } = ChromeUtils.importESModule('resource://gre/modules/ctypes.sys.mjs');
-        const objc = ctypes.open('/usr/lib/libobjc.A.dylib');
-        const id = ctypes.voidptr_t;
-        const getClass = objc.declare('objc_getClass', ctypes.default_abi, id, ctypes.char.ptr);
-        const sel = objc.declare('sel_registerName', ctypes.default_abi, id, ctypes.char.ptr);
-        const send = objc.declare('objc_msgSend', ctypes.default_abi, id, id, id);
-        const sendLong = objc.declare('objc_msgSend', ctypes.default_abi, ctypes.bool, id, id, ctypes.long);
-        sendLong(send(getClass('NSApplication'), sel('sharedApplication')), sel('setActivationPolicy:'), 1);
-        objc.close();
-      } catch (e) {}
-    }
+    if (Services.prefs.getBoolPref("swivel.chromeless", false)) swivelNativeTweaks();
     Services.wm.addListener({ onOpenWindow, onCloseWindow });`)
+
+for (const file of [`${juggler}/protocol/PageHandler.js`, `${juggler}/TargetRegistry.js`]) {
+  writeFileSync(join(work, file), readFileSync(join(work, file), 'utf8') + SWIVEL_NATIVE_TWEAKS)
+}
 
 rmSync(join(res, 'omni.ja'))
 run('zip', ['-qr9XD', join(res, 'omni.ja'), '.'], { cwd: work })

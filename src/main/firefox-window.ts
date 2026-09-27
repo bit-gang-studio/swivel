@@ -1,7 +1,7 @@
 import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { app, type BrowserWindow } from 'electron'
+import { app, screen, type BrowserWindow } from 'electron'
 import { firefox, type BrowserContext, type Page } from 'playwright-core'
 import type { ViewRect, Viewport } from '../shared/types'
 import { webkitAddon } from './native-safari'
@@ -23,6 +23,7 @@ interface MirrorAddon {
   mirrorResizeSource(id: number, w: number, h: number): void
   mirrorSetHidden(id: number, hidden: boolean): void
   mirrorDestroy(id: number): void
+  mirrorFrames(id: number): number
   windowFrames(pid: number): { x: number; y: number; width: number; height: number; onScreen: boolean; layer: number }[]
 }
 
@@ -216,13 +217,29 @@ export class FirefoxWindow {
       if (this.windowHidden || !this.expected || this.placing) return
       const frames = mirror.windowFrames(pid).filter((f) => f.layer === 0 && f.onScreen)
       const e = this.expected
-      const inPlace = frames.some((f) => Math.abs(f.x - e.x) <= 2 && Math.abs(f.y - e.y) <= 2)
-      if (!inPlace && frames.length) {
+      // Mission Control and App Exposé show windows scaled down; that's not a real move.
+      const fullSize = frames.filter((f) => Math.abs(f.width - e.width) <= 2 && Math.abs(f.height - e.height) <= 2)
+      const inPlace = fullSize.some((f) => Math.abs(f.x - e.x) <= 2 && Math.abs(f.y - e.y) <= 2)
+      if (!inPlace && fullSize.length) {
         debugLog('drifted', JSON.stringify({ expected: e, macOS: frames }))
         void this.place()
       }
     }, 500)
+    // Frame rate diagnostics while shown: what Firefox renders vs what the mirror delivers.
+    let lastFrames = -1
+    this.statsTimer = setInterval(async () => {
+      if (!this.visible || this.windowHidden || this.id === undefined || !mirror) return
+      const frames = mirror.mirrorFrames(this.id)
+      const mirrorFps = lastFrames >= 0 ? (frames - lastFrames) / 5 : -1
+      lastFrames = frames
+      const raf = await this.page
+        .evaluate(() => new Promise<number>((r) => { let n = 0; const s = performance.now(); const t = () => { n++; performance.now() - s < 1000 ? requestAnimationFrame(t) : r(n) }; requestAnimationFrame(t) }))
+        .catch(() => -1)
+      debugLog('fps', JSON.stringify({ firefoxRaf: raf, mirrorDelivered: mirrorFps, display: screen.getDisplayMatching(this.win.getBounds()).displayFrequency }))
+    }, 5000)
   }
+
+  private statsTimer?: ReturnType<typeof setInterval>
 
   private placing = false
 
@@ -308,6 +325,7 @@ export class FirefoxWindow {
 
   destroy(): void {
     clearInterval(this.watchdog)
+    clearInterval(this.statsTimer)
     for (const [event, fn] of this.listeners) this.win.removeListener(event as 'move', fn)
     if (this.id !== undefined) mirror?.mirrorDestroy(this.id)
     this.id = undefined

@@ -24,6 +24,7 @@ API_AVAILABLE(macos(12.3))
 @property(nonatomic, strong) SCStream* stream;
 @property(nonatomic, strong) SCStreamConfiguration* config;
 @property(nonatomic, assign) CMSampleBufferRef held;  // Keeps the shown surface from being reused.
+@property(atomic, assign) long frames;  // Complete frames delivered, for diagnostics.
 @end
 
 @implementation SwivelMirror
@@ -37,6 +38,7 @@ API_AVAILABLE(macos(12.3))
   if (!pb) return;
   IOSurfaceRef surface = CVPixelBufferGetIOSurface(pb);
   if (!surface) return;
+  self.frames += 1;
   CFRetain(sb);
   dispatch_async(dispatch_get_main_queue(), ^{
     [CATransaction begin];
@@ -173,6 +175,15 @@ static Napi::Value MirrorResizeSource(const Napi::CallbackInfo& info) {
   return info.Env().Undefined();
 }
 
+// mirrorFrames(id): complete frames delivered so far.
+static Napi::Value MirrorFrames(const Napi::CallbackInfo& info) {
+  if (@available(macOS 12.3, *)) {
+    SwivelMirror* m = GetMirror(info);
+    if (m) return Napi::Number::New(info.Env(), m.frames);
+  }
+  return Napi::Number::New(info.Env(), -1);
+}
+
 static Napi::Value MirrorSetHidden(const Napi::CallbackInfo& info) {
   if (@available(macOS 12.3, *)) {
     SwivelMirror* m = GetMirror(info);
@@ -225,5 +236,6 @@ void InitMirror(Napi::Env env, Napi::Object exports) {
   exports.Set("mirrorSetFrame", Napi::Function::New(env, MirrorSetFrame));
   exports.Set("mirrorResizeSource", Napi::Function::New(env, MirrorResizeSource));
   exports.Set("mirrorSetHidden", Napi::Function::New(env, MirrorSetHidden));
+  exports.Set("mirrorFrames", Napi::Function::New(env, MirrorFrames));
   exports.Set("mirrorDestroy", Napi::Function::New(env, MirrorDestroy));
 }
