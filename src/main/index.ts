@@ -92,6 +92,10 @@ app.on('before-quit', (event) => {
   if (quitting) return
   quitting = true
   event.preventDefault()
+  // Stop mirrors and close pages first, then the browsers: closing Firefox under a live window
+  // capture can crash it.
+  for (const host of sessions.values()) host.destroy()
+  sessions.clear()
   const flush = session.fromPartition('persist:swivel-chromium').cookies.flushStore().catch(() => {})
   void Promise.race([Promise.all([closeAllBrowsers(), flush]), new Promise((r) => setTimeout(r, 5000))]).then(() => app.quit())
 })

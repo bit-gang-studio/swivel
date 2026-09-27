@@ -15,9 +15,9 @@ const SLOW = `http://127.0.0.1:${slow.address().port}/`
 
 const PAGE = 'data:text/html,' + encodeURIComponent(`<!doctype html>
 <body style="margin:0;height:4000px">
-<button id=b style="position:fixed;left:0;top:0;width:100%;height:300px;font-size:40px;cursor:pointer">click me</button>
-<input id=i style="position:fixed;left:0;top:320px;width:100%;height:100px;font-size:40px">
-<a id=l href="${SLOW}p2" style="position:fixed;left:0;top:450px;width:100%;height:100px;font-size:40px;display:block">next page</a>
+<button id=b style="position:fixed;left:0;top:0;width:100%;height:100px;font-size:40px;cursor:pointer">click me</button>
+<input id=i style="position:fixed;left:0;top:120px;width:100%;height:60px;font-size:30px">
+<a id=l href="${SLOW}p2" style="position:fixed;left:0;top:200px;width:100%;height:60px;font-size:30px;display:block">next page</a>
 <script>
 console.log('ready');
 b.onclick=()=>console.log('clicked');
@@ -105,16 +105,16 @@ await withApp(async ({ app, win }) => {
             await new Promise((r) => setTimeout(r, 30))
           }
         }, { events, expected })
-      await send([{ type: 'mouseDown', x: 640, y: 20, button: 'left', clickCount: 1 }, { type: 'mouseUp', x: 640, y: 20, button: 'left', clickCount: 1 }])
+      await send([{ type: 'mouseDown', x: 400, y: 20, button: 'left', clickCount: 1 }, { type: 'mouseUp', x: 400, y: 20, button: 'left', clickCount: 1 }])
       clicked = await seen(tag, 'clicked')
       await send([
-        { type: 'mouseDown', x: 640, y: 370, button: 'left', clickCount: 1 },
-        { type: 'mouseUp', x: 640, y: 370, button: 'left', clickCount: 1 },
+        { type: 'mouseDown', x: 400, y: 150, button: 'left', clickCount: 1 },
+        { type: 'mouseUp', x: 400, y: 150, button: 'left', clickCount: 1 },
         { type: 'char', keyCode: 'H' },
         { type: 'char', keyCode: 'i' }
       ])
       typed = await seen(tag, 'typed')
-      await send([{ type: 'mouseWheel', x: 640, y: 600, deltaX: 0, deltaY: -600 }])
+      await send([{ type: 'mouseWheel', x: 400, y: 300, deltaX: 0, deltaY: -600 }])
       scrolled = await seen(tag, 'scrolled')
     } else {
       // Streamed engines: input goes through Swivel's canvas.
@@ -130,11 +130,11 @@ await withApp(async ({ app, win }) => {
       pointer = cursor === 'pointer'
       await win.mouse.click(box.x + box.width / 2, box.y + 20)
       clicked = await seen(tag, 'clicked')
-      await win.mouse.click(box.x + box.width / 2, box.y + 370 * s)
+      await win.mouse.click(box.x + box.width / 2, box.y + 150 * s)
       await win.keyboard.press('Shift+KeyH')
       await win.keyboard.press('KeyI')
       typed = await seen(tag, 'typed')
-      await win.mouse.move(box.x + box.width / 2, box.y + box.height * 0.8)
+      await win.mouse.move(box.x + box.width / 2, box.y + 300 * s)
       await win.mouse.wheel(0, 600)
       scrolled = await seen(tag, 'scrolled')
     }
@@ -172,7 +172,7 @@ await withApp(async ({ app, win }) => {
   await seen('Firefox', 'ready-sync', 30_000)
   await win.waitForTimeout(1000)
   const box = await win.locator('canvas.live').boundingBox()
-  await win.mouse.click(box.x + box.width / 2, box.y + 500 * (box.width / (await pageWidth())))
+  await win.mouse.click(box.x + box.width / 2, box.y + 230 * (box.width / (await pageWidth())))
   if (process.env.SWIVEL_DEBUG) console.log('sync click at canvas', JSON.stringify(box))
   const followed = {}
   for (const engine of ['Firefox', 'Chromium', 'WebKit']) followed[engine] = await seen(engine, 'page2', 20_000)
