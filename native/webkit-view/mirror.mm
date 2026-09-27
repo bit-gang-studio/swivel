@@ -91,16 +91,15 @@ static Napi::Value MirrorCreate(const Napi::CallbackInfo& info) {
     [parent addSubview:view positioned:NSWindowAbove relativeTo:nil];
 
     [SCShareableContent getShareableContentExcludingDesktopWindows:NO onScreenWindowsOnly:NO completionHandler:^(SCShareableContent* content, NSError* error) {
-      // The on-screen window of that process at the position Swivel placed it (other Firefox
-      // windows are hidden), ignoring small helper windows.
+      // The window of that process at the x Swivel parked it (each window gets its own x),
+      // ignoring small helper windows. w, h: the capture size, in Swivel's points.
       SCWindow* best = nil;
       double bestScore = INFINITY;
       for (SCWindow* win in content.windows) {
         if (win.owningApplication.processID != pid || win.windowLayer != 0 || !win.isOnScreen) continue;
         if (win.frame.size.width < 100 || win.frame.size.height < 100) continue;
-        double score = fabs(win.frame.origin.x - x) + fabs(win.frame.origin.y - y);
+        double score = fabs(win.frame.origin.x - x);
         if (score > 4) continue;
-        score += (fabs(win.frame.size.width - w) + fabs(win.frame.size.height - h)) / 1000;
         if (score < bestScore) { best = win; bestScore = score; }
       }
       if (!best) {
@@ -111,8 +110,8 @@ static Napi::Value MirrorCreate(const Napi::CallbackInfo& info) {
       }
       SCContentFilter* filter = [[SCContentFilter alloc] initWithDesktopIndependentWindow:best];
       SCStreamConfiguration* config = [SCStreamConfiguration new];
-      config.width = (size_t)(best.frame.size.width * scale);
-      config.height = (size_t)(best.frame.size.height * scale);
+      config.width = (size_t)(w * scale);
+      config.height = (size_t)(h * scale);
       config.minimumFrameInterval = CMTimeMake(1, 120);
       config.queueDepth = 4;
       config.showsCursor = NO;

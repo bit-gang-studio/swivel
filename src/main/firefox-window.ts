@@ -105,11 +105,13 @@ export function parkingSpot(): { x: number; y: number } {
 }
 
 /** Launch options for the windowed Firefox context. `at` is where its window first opens. */
-export function windowedLaunchOptions(viewport: Viewport, at: { x: number; y: number }) {
+export function windowedLaunchOptions(viewport: Viewport, at: { x: number; y: number }, scale: number) {
   return {
     headless: false,
     executablePath: patchedFirefox()!,
     viewport,
+    // Off-screen, the window gets a 1x backing; the page still renders at the display's density.
+    deviceScaleFactor: scale,
     firefoxUserPrefs: { 'swivel.chromeless': true, 'swivel.windowX': Math.round(at.x), 'swivel.windowY': Math.round(at.y) },
     // -foreground makes Firefox a regular app (Dock icon); -silent skips its default startup window.
     ignoreDefaultArgs: ['-foreground'],
@@ -204,19 +206,24 @@ export class FirefoxWindow {
   private async placeNow(): Promise<void> {
     const session = jugglerSession(this.page)
     const { x, y } = parkingSpot()
-    await session?.send('Page.setWindowSize', { width: this.viewport.width, height: this.viewport.height }).catch(() => {})
-    this.expected = { x, y, width: this.viewport.width, height: this.viewport.height }
     const at = await session?.send('Page.moveWindow', { x, y }).catch((err: unknown) => String(err))
-    if (at && typeof at === 'object' && 'x' in at) this.at = at as { x: number; y: number }
+    const moved = at && typeof at === 'object' && 'x' in at ? (at as { x: number; y: number; scale: number }) : undefined
+    // The page renders at Swivel's display density; the window holds that many pixels at its own
+    // backing scale.
+    const ratio = screen.getDisplayMatching(this.win.getBounds()).scaleFactor / (moved?.scale || 1)
+    const width = Math.round(this.viewport.width * ratio)
+    const height = Math.round(this.viewport.height * ratio)
+    await session?.send('Page.setWindowSize', { width, height }).catch(() => {})
+    this.expected = { x, y, width, height }
     // Firefox's move keeps part of the window on screen, so the patch moves it natively too
     // (parkX). Firefox also resets its window behaviors when it shows a window: keep it
     // click-through and out of Mission Control.
     const tweaks = await session?.send('Page.nativeTweaks', { parkX: x }).catch((err: unknown) => ({ result: String(err) }))
     const pid = firefoxPid(this.context)
     // Where macOS really has it, for finding the window to mirror.
-    const real = pid ? mirror?.windowFrames(pid).find((f) => f.layer === 0 && f.x >= x - 2 && f.width === this.viewport.width) : undefined
-    if (real) this.at = { x: real.x, y: real.y }
-    debugLog('placed', JSON.stringify({ tweaks: (tweaks as { result?: string } | undefined)?.result }), JSON.stringify({ asked: { x, y }, firefoxSays: at, viewport: this.viewport, macOS: pid ? mirror?.windowFrames(pid) : null }))
+    const real = pid ? mirror?.windowFrames(pid).find((f) => f.layer === 0 && Math.abs(f.x - x) <= 2) : undefined
+    this.at = { x: real?.x ?? x, y: real?.y ?? y }
+    debugLog('placed', JSON.stringify({ tweaks: (tweaks as { result?: string } | undefined)?.result }), JSON.stringify({ asked: { x, y, width, height }, firefoxSays: at, viewport: this.viewport, macOS: pid ? mirror?.windowFrames(pid) : null }))
   }
 
   /**

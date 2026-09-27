@@ -20,7 +20,7 @@ function getContext(engine: EngineId, win?: BrowserWindow): Promise<BrowserConte
   if (!context && engine === 'firefox' && win && windowedFirefoxStatus() === 'on') {
     const profile = join(app.getPath('userData'), 'profiles', engine)
     refreshPatchedCode(profile)
-    context = firefox.launchPersistentContext(profile, windowedLaunchOptions({ width: 1280, height: 800 }, parkingSpot()))
+    context = firefox.launchPersistentContext(profile, windowedLaunchOptions({ width: 1280, height: 800 }, parkingSpot(), screen.getDisplayMatching(win.getBounds()).scaleFactor))
     context.catch(() => contexts.delete(engine))
     contexts.set(engine, context)
   }

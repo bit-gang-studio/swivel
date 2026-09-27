@@ -16,7 +16,7 @@ const exe = firefox.executablePath() // .../firefox-NNNN/firefox/Nightly.app/Con
 const source = dirname(dirname(dirname(exe)))
 const revision = source.match(/firefox-(\d+)/)?.[1] ?? 'unknown'
 const dest = join(homedir(), 'Library/Caches/swivel', `firefox-window-${revision}`, 'Nightly.app')
-const MARKER = 'swivel-patch-v18'
+const MARKER = 'swivel-patch-v19'
 const SWIVEL_NATIVE_TWEAKS = `
 // Swivel: native window tweaks, run from inside Firefox (js-ctypes, Objective-C runtime).
 // - Accessory app: no Dock icon or app switcher entry. Firefox makes itself a regular app at
@@ -119,7 +119,8 @@ const juggler = 'chrome/juggler/content'
 patch(`${juggler}/protocol/PageHandler.js`, "  async ['Page.setZoom']({zoom}) {", `  async ['Page.moveWindow']({x, y}) {
     const win = this._pageTarget._window;
     win.moveTo(x, y);
-    return { x: win.screenX, y: win.screenY };
+    // scale: the window's backing scale (Swivel sizes the window from it).
+    return { x: win.screenX, y: win.screenY, scale: win.devicePixelRatio };
   }
 
   async ['Page.setWindowMinimized']({minimized}) {
@@ -152,7 +153,7 @@ patch(`${juggler}/protocol/PageHandler.js`, "  async ['Page.setZoom']({zoom}) {"
   async ['Page.setZoom']({zoom}) {`)
 patch(`${juggler}/protocol/Protocol.js`, "    'setZoom': {", `    'moveWindow': {
       params: { x: t.Number, y: t.Number },
-      returns: { x: t.Number, y: t.Number },
+      returns: { x: t.Number, y: t.Number, scale: t.Number },
     },
     'setWindowMinimized': {
       params: { minimized: t.Boolean },
