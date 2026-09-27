@@ -4,7 +4,7 @@ import { chromium, firefox, webkit, type BrowserContext, type BrowserType, type 
 import type { EngineId, Frame, InputEvent, LiveOptions, ViewRect } from '../shared/types'
 import type { Emit, PageView } from './view'
 import { FrameSource } from './frames'
-import { FirefoxWindow, windowedFirefoxStatus, windowedLaunchOptions } from './firefox-window'
+import { FirefoxWindow, refreshPatchedCode, windowedFirefoxStatus, windowedLaunchOptions } from './firefox-window'
 import { findInPage, type FindRequest } from '../shared/find'
 
 const types: Record<EngineId, BrowserType> = { chromium, firefox, webkit }
@@ -19,6 +19,7 @@ function getContext(engine: EngineId, win?: BrowserWindow): Promise<BrowserConte
   let context = contexts.get(engine)
   if (!context && engine === 'firefox' && win && windowedFirefoxStatus() === 'on') {
     const profile = join(app.getPath('userData'), 'profiles', engine)
+    refreshPatchedCode(profile)
     const content = win.getContentBounds()
     context = firefox.launchPersistentContext(profile, windowedLaunchOptions({ width: 1280, height: 800 }, { x: content.x, y: content.y + 40 }))
     context.catch(() => contexts.delete(engine))

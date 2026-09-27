@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { app, screen, type BrowserWindow } from 'electron'
@@ -58,6 +58,30 @@ function patchedFirefox(): string | null {
   if (!revision) return null
   const exe = join(homedir(), 'Library/Caches/swivel', `firefox-window-${revision}`, 'Nightly.app/Contents/MacOS/firefox')
   return existsSync(exe) ? exe : null
+}
+
+/**
+ * Firefox caches its compiled internal code (including Playwright's Juggler, which Swivel patches)
+ * in the profile's startupCache and keeps using it while the build ID is unchanged. After the patch
+ * changes, clear that cache, or the old patch keeps running.
+ */
+export function refreshPatchedCode(profileDir: string): void {
+  const exe = patchedFirefox()
+  if (!exe) return
+  const resources = join(dirname(dirname(exe)), 'Resources')
+  const marker = readdirSync(resources).find((f) => f.startsWith('swivel-patch-')) ?? ''
+  const stamp = join(profileDir, 'swivel-patch')
+  let seen = ''
+  try {
+    seen = readFileSync(stamp, 'utf8')
+  } catch {
+    // First run with this profile.
+  }
+  if (seen === marker) return
+  rmSync(join(profileDir, 'startupCache'), { recursive: true, force: true })
+  mkdirSync(profileDir, { recursive: true })
+  writeFileSync(stamp, marker)
+  debugLog('cleared Firefox startup cache for', marker)
 }
 
 export type WindowedStatus = 'on' | 'needs-permission' | 'not-installed' | 'unsupported'
