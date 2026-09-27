@@ -25,9 +25,11 @@ i.oninput=()=>{ if(i.value==='Hi') console.log('typed') };
 addEventListener('scroll',()=>{ if(!window.s){window.s=1;console.log('scrolled')} });
 </script></body>`)
 
-// Tests use the fixed Desktop size (positions below assume 1280×800) and need the console open.
+// Tests use Fill window, the default (page pixels map 1:1 to the page area), and need the console open.
+let pageWidth // Width of the page area, which Fill window uses as the viewport width.
 async function prepare(win) {
-  await win.getByLabel('Screen size').selectOption('2')
+  pageWidth = () => win.evaluate(() => Math.floor(document.querySelector('main').clientWidth))
+  await win.getByLabel('Screen size').selectOption('fill')
   const toggle = win.getByRole('button', { name: /^Console/ })
   if ((await toggle.getAttribute('aria-pressed')) !== 'true') await toggle.click()
   await win.waitForSelector('.console')
@@ -75,7 +77,8 @@ await withApp(async ({ app, win }) => {
           }
         }, 250)
       })
-      if (width !== 1280) console.log(`WebKit innerWidth is ${width}, expected 1280`)
+      const expected = await pageWidth()
+      if (Math.abs(width - expected) > 1) console.log(`WebKit innerWidth is ${width}, expected ${expected}`)
       await run("document.getElementById('b').click()")
       clicked = await seen(tag, 'clicked')
       await run("const i = document.getElementById('i'); i.value = 'Hi'; i.dispatchEvent(new Event('input'))")
@@ -88,19 +91,20 @@ await withApp(async ({ app, win }) => {
       const width = await app.evaluate(({ BrowserWindow }) =>
         BrowserWindow.getAllWindows()[0].contentView.children[0].webContents.executeJavaScript('innerWidth')
       )
-      if (width !== 1280) console.log(`Chromium innerWidth is ${width}, expected 1280`)
+      const expected = await pageWidth()
+      if (Math.abs(width - expected) > 1) console.log(`Chromium innerWidth is ${width}, expected ${expected}`)
       // Inject input the way the OS does, through Electron, in view coordinates.
       const send = (events) =>
-        app.evaluate(async ({ BrowserWindow }, events) => {
+        app.evaluate(async ({ BrowserWindow }, { events, expected }) => {
           const view = BrowserWindow.getAllWindows()[0].contentView.children[0]
-          const scale = view.getBounds().width / 1280
+          const scale = view.getBounds().width / expected
           for (const e of events) {
             const ev = { ...e }
             if ('x' in ev) Object.assign(ev, { x: Math.round(ev.x * scale), y: Math.round(ev.y * scale) })
             view.webContents.sendInputEvent(ev)
             await new Promise((r) => setTimeout(r, 30))
           }
-        }, events)
+        }, { events, expected })
       await send([{ type: 'mouseDown', x: 640, y: 20, button: 'left', clickCount: 1 }, { type: 'mouseUp', x: 640, y: 20, button: 'left', clickCount: 1 }])
       clicked = await seen(tag, 'clicked')
       await send([
@@ -115,7 +119,7 @@ await withApp(async ({ app, win }) => {
     } else {
       // Streamed engines: input goes through Swivel's canvas.
       const box = await win.locator('canvas.live').boundingBox()
-      const s = box.height / 800
+      const s = box.width / (await pageWidth())
       await win.mouse.move(box.x + box.width / 2, box.y + 30)
       let cursor = ''
       for (let i = 0; i < 20 && cursor !== 'pointer'; i++) {
@@ -168,7 +172,7 @@ await withApp(async ({ app, win }) => {
   await seen('Firefox', 'ready-sync', 30_000)
   await win.waitForTimeout(1000)
   const box = await win.locator('canvas.live').boundingBox()
-  await win.mouse.click(box.x + box.width / 2, box.y + 500 * (box.height / 800))
+  await win.mouse.click(box.x + box.width / 2, box.y + 500 * (box.width / (await pageWidth())))
   if (process.env.SWIVEL_DEBUG) console.log('sync click at canvas', JSON.stringify(box))
   const followed = {}
   for (const engine of ['Firefox', 'Chromium', 'WebKit']) followed[engine] = await seen(engine, 'page2', 20_000)
