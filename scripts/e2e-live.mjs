@@ -169,6 +169,7 @@ await withApp(async ({ app, win }) => {
   await win.waitForTimeout(1000)
   const box = await win.locator('canvas.live').boundingBox()
   await win.mouse.click(box.x + box.width / 2, box.y + 500 * (box.height / 800))
+  if (process.env.SWIVEL_DEBUG) console.log('sync click at canvas', JSON.stringify(box))
   const followed = {}
   for (const engine of ['Firefox', 'Chromium', 'WebKit']) followed[engine] = await seen(engine, 'page2', 20_000)
   console.log('followed link:', JSON.stringify(followed))

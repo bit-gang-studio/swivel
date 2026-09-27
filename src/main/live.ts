@@ -82,6 +82,7 @@ function pickCursor({ x, y }: { x: number; y: number }): string {
   if (el.closest('textarea, [contenteditable=""], [contenteditable="true"], input:not([type=button], [type=submit], [type=reset], [type=checkbox], [type=radio], [type=range], [type=color], [type=file], [type=image])')) return 'text'
   return 'default'
 }
+const debug = (...args: unknown[]) => process.env.SWIVEL_DEBUG && console.log('[swivel]', ...args)
 const message = (err: unknown) => (err instanceof Error ? err.message.split('\n')[0] : String(err))
 // Errors from a navigation that a newer one replaced. Not worth showing.
 const superseded = (err: unknown) => /interrupted by another navigation|NS_BINDING_ABORTED|Navigation.*aborted|frame was detached|Target.*closed|has been closed/i.test(message(err))
@@ -153,6 +154,8 @@ export class StreamedView implements PageView {
       // load links that open new windows here instead (a stray window would show on screen).
       for (const other of context.pages()) if (other !== page) await other.close().catch(() => {})
       context.on('page', (popup) => {
+        debug(this.engine, 'popup', popup === this.page ? '(our page)' : popup.url())
+        if (popup === this.page) return
         void popup.waitForURL(/.*/, { timeout: 5000 }).catch(() => {}).then(() => {
           const url = popup.url()
           void popup.close().catch(() => {})
@@ -189,6 +192,7 @@ export class StreamedView implements PageView {
   /** Real window mirrored when the size fits behind Swivel; otherwise stream frames from the same page. */
   private chooseRendering(): void {
     if (!this.window || !this.opts) return
+    debug(this.engine, 'rendering', this.window.fits(this.opts.viewport) ? 'mirror' : 'frames (too big to hide)', JSON.stringify(this.opts.viewport))
     if (this.window.fits(this.opts.viewport)) {
       this.window.resume()
       this.frames?.stop()
@@ -246,9 +250,12 @@ export class StreamedView implements PageView {
   /** Run a navigation in the background and report real failures. */
   private async load(page: Page, go: () => Promise<unknown>): Promise<void> {
     this.emit('loading', true)
+    const started = Date.now()
     try {
       await go()
+      debug(this.engine, 'load done', Date.now() - started, 'ms')
     } catch (err) {
+      debug(this.engine, 'load failed', message(err))
       if (page === this.page && !superseded(err)) this.emit('error', message(err))
     } finally {
       if (page === this.page) this.emit('loading', false)
@@ -265,8 +272,10 @@ export class StreamedView implements PageView {
   }
 
   async navigate(url: string): Promise<void> {
+    debug(this.engine, 'navigate requested', url.slice(0, 60))
     await this.ready
     const page = this.page
+    debug(this.engine, 'navigate ready', !!page)
     if (!page || !this.opts) return
     this.opts = { ...this.opts, url }
     this.loadedUrl = url
@@ -345,6 +354,7 @@ export class StreamedView implements PageView {
       case 'move':
         return this.moveTo(page, e.x, e.y)
       case 'down':
+        debug(this.engine, 'mouse down', e.x, e.y)
         await this.moveTo(page, e.x, e.y)
         return page.mouse.down({ button: e.button })
       case 'up':
