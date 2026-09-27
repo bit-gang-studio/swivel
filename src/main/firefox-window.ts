@@ -110,6 +110,9 @@ export class FirefoxWindow {
   private listeners: [string, () => void][] = []
   /** Called when the Swivel window resizes, since that can change whether the page fits. */
   onFitChange?: () => void
+  private watchdog?: ReturnType<typeof setInterval>
+  /** Where the window should be (screen points), to notice macOS moving it (e.g. window tiling). */
+  private expected?: { x: number; y: number; width: number; height: number }
 
   constructor(win: BrowserWindow, context: BrowserContext, page: Page, viewport: Viewport) {
     this.win = win
@@ -137,6 +140,7 @@ export class FirefoxWindow {
     await this.place()
     this.win.focus()
     if (process.platform === 'darwin') app.focus({ steal: true })
+    this.startWatchdog()
     if (!(await this.connect())) return false
     debugLog('mirroring', JSON.stringify({ viewport: this.viewport, at: this.at }))
     this.layout()
@@ -171,10 +175,20 @@ export class FirefoxWindow {
   /** Keep the Firefox window directly behind the page area, so it's always covered by Swivel. */
   private async place(): Promise<void> {
     if (this.win.isDestroyed()) return
+    this.placing = true
+    try {
+      await this.placeNow()
+    } finally {
+      this.placing = false
+    }
+  }
+
+  private async placeNow(): Promise<void> {
     const content = this.win.getContentBounds()
     const session = jugglerSession(this.page)
     if (this.suspended) {
       // Shrunk to Swivel's content area, directly behind it.
+      this.expected = { x: content.x, y: content.y, width: content.width, height: content.height }
       await session?.send('Page.setWindowSize', { width: content.width, height: content.height }).catch(() => {})
       await session?.send('Page.moveWindow', { x: content.x, y: content.y }).catch(() => {})
       return
@@ -183,11 +197,34 @@ export class FirefoxWindow {
     const box = this.rect ?? { x: 0, y: 0, width: content.width, height: content.height }
     const x = Math.round(content.x + box.x + box.width / 2 - this.viewport.width / 2)
     const y = Math.round(content.y + box.y + box.height / 2 - this.viewport.height / 2)
+    this.expected = { x, y, width: this.viewport.width, height: this.viewport.height }
     const at = await session?.send('Page.moveWindow', { x, y }).catch((err: unknown) => String(err))
     if (at && typeof at === 'object' && 'x' in at) this.at = at as { x: number; y: number }
     const pid = firefoxPid(this.context)
     debugLog('placed', JSON.stringify({ asked: { x, y }, firefoxSays: at, swivelContent: content, rect: this.rect, viewport: this.viewport, macOS: pid ? mirror?.windowFrames(pid) : null }))
   }
+
+  /**
+   * macOS can move another app's window on its own (window tiling arranges the "next" window into
+   * the other half of the screen), and Swivel isn't told. Check where it really is and put it
+   * back behind the page area if it drifted.
+   */
+  private startWatchdog(): void {
+    const pid = firefoxPid(this.context)
+    if (!pid || !mirror) return
+    this.watchdog = setInterval(() => {
+      if (this.windowHidden || !this.expected || this.placing) return
+      const frames = mirror.windowFrames(pid).filter((f) => f.layer === 0 && f.onScreen)
+      const e = this.expected
+      const inPlace = frames.some((f) => Math.abs(f.x - e.x) <= 2 && Math.abs(f.y - e.y) <= 2)
+      if (!inPlace && frames.length) {
+        debugLog('drifted', JSON.stringify({ expected: e, macOS: frames }))
+        void this.place()
+      }
+    }, 500)
+  }
+
+  private placing = false
 
   private windowHidden = false
   /** Where the window actually is (screen points), for finding it to mirror. */
@@ -270,6 +307,7 @@ export class FirefoxWindow {
   }
 
   destroy(): void {
+    clearInterval(this.watchdog)
     for (const [event, fn] of this.listeners) this.win.removeListener(event as 'move', fn)
     if (this.id !== undefined) mirror?.mirrorDestroy(this.id)
     this.id = undefined
