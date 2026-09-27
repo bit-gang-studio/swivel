@@ -148,11 +148,17 @@ export class FirefoxWindow {
       this.win.on(event as 'move', fn)
       this.listeners.push([event, fn])
     }
-    on('move', () => this.place())
-    on('resize', () => {
-      void this.place()
+    // While Swivel is dragged or resized, the window can't keep up and would peek out from behind
+    // it, so hide it (the mirror keeps showing the last frame) and bring it back when done.
+    on('will-move', () => this.beginMove())
+    on('will-resize', () => this.beginMove())
+    on('moved', () => this.endMove())
+    on('resized', () => {
+      this.endMove()
       this.onFitChange?.()
     })
+    on('move', () => this.moveTick())
+    on('resize', () => this.moveTick())
     on('minimize', () => void this.setWindowVisible(false))
     on('hide', () => void this.setWindowVisible(false))
     on('restore', () => void this.setWindowVisible(true))
@@ -240,7 +246,7 @@ export class FirefoxWindow {
     const pid = firefoxPid(this.context)
     if (!pid || !mirror) return
     this.watchdog = setInterval(() => {
-      if (this.windowHidden || !this.expected || this.placing) return
+      if (this.windowHidden || this.moving || !this.expected || this.placing) return
       if (++this.ticks % 4 === 0) void jugglerSession(this.page)?.send('Page.nativeTweaks', {}).catch(() => {})
       const frames = mirror.windowFrames(pid).filter((f) => f.layer === 0 && f.onScreen)
       const e = this.expected
@@ -271,6 +277,34 @@ export class FirefoxWindow {
   private placing = false
   private ticks = 0
 
+  private moving = false
+  private moveEnd?: ReturnType<typeof setTimeout>
+
+  private beginMove(): void {
+    if (this.moving) return
+    this.moving = true
+    void jugglerSession(this.page)?.send('Page.setWindowVisible', { visible: false }).catch(() => {})
+  }
+
+  /** 'moved'/'resized' only fire on macOS and Windows; a quiet period ends a move elsewhere. */
+  private moveTick(): void {
+    this.beginMove()
+    clearTimeout(this.moveEnd)
+    this.moveEnd = setTimeout(() => this.endMove(), 250)
+  }
+
+  private endMove(): void {
+    clearTimeout(this.moveEnd)
+    if (!this.moving) return
+    this.moving = false
+    if (this.windowHidden) return // Swivel itself is hidden; it comes back on show.
+    void (async () => {
+      await this.place()
+      await jugglerSession(this.page)?.send('Page.setWindowVisible', { visible: true }).catch(() => {})
+      await this.restartMirror()
+    })()
+  }
+
   private windowHidden = false
   /** Where the window actually is (screen points), for finding it to mirror. */
   private at = { x: 0, y: 0 }
@@ -288,13 +322,16 @@ export class FirefoxWindow {
     await this.restartMirror()
   }
 
+  /** New capture first, then drop the old one, so the page area never shows blank. */
   private async restartMirror(): Promise<void> {
-    if (this.id !== undefined) mirror?.mirrorDestroy(this.id)
-    await new Promise((r) => setTimeout(r, 100))
+    const previous = this.id
     this.id = undefined
+    await new Promise((r) => setTimeout(r, 50))
     await this.connect()
     this.layout()
+    if (previous !== undefined) setTimeout(() => mirror?.mirrorDestroy(previous), 100)
   }
+
 
   /**
    * Whether the real window can hide behind Swivel at this size. It must fit inside Swivel's
