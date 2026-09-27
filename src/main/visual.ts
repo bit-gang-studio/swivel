@@ -39,7 +39,11 @@ export async function visualCheck(win: BrowserWindow, dir: string): Promise<void
   }
 
   win.setBounds({ x: 0, y: 0, width: 1400, height: 900 })
-  await sleep(3000)
+  // The first seconds, while engines (including a real Firefox window) start: nothing may flash up.
+  for (const t of [1, 2, 3]) {
+    await sleep(1000)
+    await shot(`startup-${t}s`)
+  }
   await go(process.env.SWIVEL_VISUAL_URL ?? 'https://en.wikipedia.org/wiki/Oscar_Piastri')
   await sleep(6000)
   await shot('default')

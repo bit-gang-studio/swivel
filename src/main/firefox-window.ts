@@ -53,15 +53,19 @@ export function requestScreenRecording(): void {
   mirror?.requestScreenCaptureAccess()
 }
 
-/** Launch options for the windowed Firefox context. */
-export function windowedLaunchOptions(viewport: Viewport) {
+/**
+ * Launch options for the windowed Firefox context. `at` is where its window should first open
+ * (screen points): behind Swivel's window, so it never flashes up elsewhere.
+ */
+export function windowedLaunchOptions(viewport: Viewport, at: { x: number; y: number }) {
   return {
     headless: false,
     executablePath: patchedFirefox()!,
     viewport,
-    firefoxUserPrefs: { 'swivel.chromeless': true },
-    // Playwright's -foreground flag makes Firefox a regular app, overriding the no-Dock-icon setting.
-    ignoreDefaultArgs: ['-foreground']
+    firefoxUserPrefs: { 'swivel.chromeless': true, 'swivel.windowX': Math.round(at.x), 'swivel.windowY': Math.round(at.y) },
+    // -foreground makes Firefox a regular app (Dock icon); -silent skips its default startup window.
+    ignoreDefaultArgs: ['-foreground'],
+    args: ['-silent']
   }
 }
 
@@ -110,13 +114,10 @@ export class FirefoxWindow {
 
   /** Find and mirror the Firefox window. Retries while macOS lists the new window. */
   async start(): Promise<boolean> {
-    // The patched Firefox keeps its windows hidden. Put this one behind Swivel, make sure Swivel
-    // is on top, then show it (so it can be captured).
+    // Place the window exactly behind the page area and put Swivel back on top.
     await this.place()
     this.win.focus()
     if (process.platform === 'darwin') app.focus({ steal: true })
-    await jugglerSession(this.page)?.send('Page.setWindowVisible', { visible: true }).catch(() => {})
-    await new Promise((r) => setTimeout(r, 100))
     if (!(await this.connect())) return false
     debugLog('mirroring Firefox window', JSON.stringify(this.viewport))
     this.layout()

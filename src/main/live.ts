@@ -15,11 +15,12 @@ const contexts = new Map<EngineId, Promise<BrowserContext>>()
  * its own profile, like separate browsers. Falls back to a throwaway context if the profile is
  * locked (another Swivel window or instance is using it).
  */
-function getContext(engine: EngineId): Promise<BrowserContext> {
+function getContext(engine: EngineId, win?: BrowserWindow): Promise<BrowserContext> {
   let context = contexts.get(engine)
-  if (!context && engine === 'firefox' && windowedFirefoxStatus() === 'on') {
+  if (!context && engine === 'firefox' && win && windowedFirefoxStatus() === 'on') {
     const profile = join(app.getPath('userData'), 'profiles', engine)
-    context = firefox.launchPersistentContext(profile, windowedLaunchOptions({ width: 1280, height: 800 }))
+    const content = win.getContentBounds()
+    context = firefox.launchPersistentContext(profile, windowedLaunchOptions({ width: 1280, height: 800 }, { x: content.x, y: content.y + 40 }))
     context.catch(() => contexts.delete(engine))
     contexts.set(engine, context)
   }
@@ -148,7 +149,7 @@ export class StreamedView implements PageView {
   }
 
   private async createPage(): Promise<Page> {
-    const context = await getContext(this.engine)
+    const context = await getContext(this.engine, this.win)
     const page = await context.newPage()
     this.page = page
     if (this.engine === 'firefox' && this.win && windowedFirefoxStatus() === 'on' && this.opts) {
