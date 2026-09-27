@@ -8,9 +8,9 @@ import { webkitAddon } from './native-safari'
 import { jugglerSession } from './frames'
 
 /**
- * Real-window Firefox on macOS: a borderless Firefox window (from Swivel's patched copy, see
- * scripts/patch-firefox.mjs) sits behind Swivel's page area, and ScreenCaptureKit mirrors it into
- * a layer on top. It renders on the GPU at the display's refresh rate, like a normal browser.
+ * Real-window Firefox on macOS: a borderless, click-through Firefox window (from Swivel's patched
+ * copy, see scripts/patch-firefox.mjs) is parked off-screen, and ScreenCaptureKit mirrors it into
+ * Swivel's page area. Off-screen, it can't pop up, peek out, or need to follow Swivel around. It renders on the GPU at the display's refresh rate, like a normal browser.
  * Input still goes through Swivel's page area and Playwright. Needs the Screen Recording
  * permission; without it Firefox is streamed as before.
  */
@@ -98,10 +98,13 @@ export function requestScreenRecording(): void {
   mirror?.requestScreenCaptureAccess()
 }
 
-/**
- * Launch options for the windowed Firefox context. `at` is where its window should first open
- * (screen points): behind Swivel's window, so it never flashes up elsewhere.
- */
+/** Just past the right edge of every display (screen points): nobody sees a window there. */
+export function parkingSpot(): { x: number; y: number } {
+  const displays = screen.getAllDisplays().map((d) => d.bounds)
+  return { x: Math.max(...displays.map((b) => b.x + b.width)) + 100, y: Math.min(...displays.map((b) => b.y)) }
+}
+
+/** Launch options for the windowed Firefox context. `at` is where its window first opens. */
 export function windowedLaunchOptions(viewport: Viewport, at: { x: number; y: number }) {
   return {
     headless: false,
@@ -149,29 +152,12 @@ export class FirefoxWindow {
       this.win.on(event as 'move', fn)
       this.listeners.push([event, fn])
     }
-    // While Swivel is dragged or resized, the window can't keep up and would peek out from behind
-    // it, so hide it (the mirror keeps showing the last frame) and bring it back when done.
-    on('will-move', () => this.beginMove())
-    on('will-resize', () => this.beginMove())
-    on('moved', () => this.endMove())
-    on('resized', () => {
-      this.endMove()
-      this.onFitChange?.()
-    })
-    on('move', () => this.moveTick())
-    on('resize', () => this.moveTick())
-    on('minimize', () => void this.setWindowVisible(false))
-    on('hide', () => void this.setWindowVisible(false))
-    on('restore', () => void this.setWindowVisible(true))
-    on('show', () => void this.setWindowVisible(true))
+    on('resized', () => this.onFitChange?.())
   }
 
   /** Find and mirror the Firefox window. Retries while macOS lists the new window. */
   async start(): Promise<boolean> {
-    // Place the window exactly behind the page area and put Swivel back on top.
     await this.place()
-    this.win.focus()
-    if (process.platform === 'darwin') app.focus({ steal: true })
     this.startWatchdog()
     if (!(await this.connect())) return false
     debugLog('mirroring', JSON.stringify({ viewport: this.viewport, at: this.at }))
@@ -204,7 +190,7 @@ export class FirefoxWindow {
     return true
   }
 
-  /** Keep the Firefox window directly behind the page area, so it's always covered by Swivel. */
+  /** Keep the Firefox window parked off-screen, at the page's size. */
   private async place(): Promise<void> {
     if (this.win.isDestroyed()) return
     this.placing = true
@@ -216,29 +202,17 @@ export class FirefoxWindow {
   }
 
   private async placeNow(): Promise<void> {
-    const content = this.win.getContentBounds()
     const session = jugglerSession(this.page)
-    if (this.suspended) {
-      // Shrunk to Swivel's content area, directly behind it.
-      this.expected = { x: content.x, y: content.y, width: content.width, height: content.height }
-      await session?.send('Page.setWindowSize', { width: content.width, height: content.height }).catch(() => {})
-      await session?.send('Page.moveWindow', { x: content.x, y: content.y }).catch(() => {})
-      return
-    }
+    const { x, y } = parkingSpot()
     await session?.send('Page.setWindowSize', { width: this.viewport.width, height: this.viewport.height }).catch(() => {})
-    const box = this.rect ?? { x: 0, y: 0, width: content.width, height: content.height }
-    const x = Math.round(content.x + box.x + box.width / 2 - this.viewport.width / 2)
-    const y = Math.round(content.y + box.y + box.height / 2 - this.viewport.height / 2)
     this.expected = { x, y, width: this.viewport.width, height: this.viewport.height }
     const at = await session?.send('Page.moveWindow', { x, y }).catch((err: unknown) => String(err))
     if (at && typeof at === 'object' && 'x' in at) this.at = at as { x: number; y: number }
-    // Firefox resets its window behaviors when it shows a window; keep it out of Mission Control,
-    // and directly below Swivel's window.
+    // Firefox resets its window behaviors when it shows a window: keep it click-through and out of
+    // Mission Control.
     const tweaks = await session?.send('Page.nativeTweaks', {}).catch((err: unknown) => ({ result: String(err) }))
-    const below = this.swivelWindowNumber
-    if (below) await session?.send('Page.orderBelow', { below }).catch(() => {})
     const pid = firefoxPid(this.context)
-    debugLog('placed', JSON.stringify({ tweaks: (tweaks as { result?: string } | undefined)?.result }), JSON.stringify({ asked: { x, y }, firefoxSays: at, swivelContent: content, rect: this.rect, viewport: this.viewport, macOS: pid ? mirror?.windowFrames(pid) : null }))
+    debugLog('placed', JSON.stringify({ tweaks: (tweaks as { result?: string } | undefined)?.result }), JSON.stringify({ asked: { x, y }, firefoxSays: at, viewport: this.viewport, macOS: pid ? mirror?.windowFrames(pid) : null }))
   }
 
   /**
@@ -250,12 +224,8 @@ export class FirefoxWindow {
     const pid = firefoxPid(this.context)
     if (!pid || !mirror) return
     this.watchdog = setInterval(() => {
-      if (this.windowHidden || this.moving || !this.expected || this.placing) return
-      if (++this.ticks % 4 === 0) {
-        void jugglerSession(this.page)?.send('Page.nativeTweaks', {}).catch(() => {})
-        const below = this.swivelWindowNumber
-        if (below) void jugglerSession(this.page)?.send('Page.orderBelow', { below }).catch(() => {})
-      }
+      if (!this.expected || this.placing) return
+      if (++this.ticks % 4 === 0) void jugglerSession(this.page)?.send('Page.nativeTweaks', {}).catch(() => {})
       const frames = mirror.windowFrames(pid).filter((f) => f.layer === 0 && f.onScreen)
       const e = this.expected
       // Mission Control and App Exposé show windows scaled down; that's not a real move.
@@ -269,7 +239,7 @@ export class FirefoxWindow {
     // Frame rate diagnostics while shown: what Firefox renders vs what the mirror delivers.
     let lastFrames = -1
     this.statsTimer = setInterval(async () => {
-      if (!this.visible || this.windowHidden || this.id === undefined || !mirror) return
+      if (!this.visible || this.id === undefined || !mirror) return
       const frames = mirror.mirrorFrames(this.id)
       const mirrorFps = lastFrames >= 0 ? (frames - lastFrames) / 5 : -1
       lastFrames = frames
@@ -285,89 +255,15 @@ export class FirefoxWindow {
   private placing = false
   private ticks = 0
 
-  private moving = false
-  private moveEnd?: ReturnType<typeof setTimeout>
-
-  private beginMove(): void {
-    if (this.moving) return
-    this.moving = true
-    void jugglerSession(this.page)?.send('Page.setWindowVisible', { visible: false }).catch(() => {})
-  }
-
-  /** 'moved'/'resized' only fire on macOS and Windows; a quiet period ends a move elsewhere. */
-  private moveTick(): void {
-    this.beginMove()
-    clearTimeout(this.moveEnd)
-    this.moveEnd = setTimeout(() => this.endMove(), 250)
-  }
-
-  private endMove(): void {
-    clearTimeout(this.moveEnd)
-    if (!this.moving) return
-    this.moving = false
-    if (this.windowHidden) return // Swivel itself is hidden; it comes back on show.
-    void (async () => {
-      await this.place()
-      await this.showBelow()
-      await this.restartMirror()
-    })()
-  }
-
-  /** Swivel's macOS window number: Firefox's window is always ordered directly below it. */
-  private get swivelWindowNumber(): number | undefined {
-    try {
-      return mirror?.windowNumber(this.win.getNativeWindowHandle())
-    } catch {
-      return undefined
-    }
-  }
-
-  private showBelow(): Promise<unknown> | undefined {
-    return jugglerSession(this.page)?.send('Page.setWindowVisible', { visible: true, below: this.swivelWindowNumber }).catch(() => {})
-  }
-
-  private windowHidden = false
   /** Where the window actually is (screen points), for finding it to mirror. */
   private at = { x: 0, y: 0 }
 
-  /**
-   * While Swivel is minimized or hidden, the real window would show on its own, so hide it
-   * entirely (minimizing would add a Dock thumbnail). The capture is restarted when it returns.
-   */
-  private async setWindowVisible(visible: boolean): Promise<void> {
-    if (visible === !this.windowHidden) return
-    this.windowHidden = !visible
-    if (visible) await this.showBelow()
-    else await jugglerSession(this.page)?.send('Page.setWindowVisible', { visible: false }).catch(() => {})
-    if (!visible) return
-    await this.place()
-    await this.restartMirror()
+  /** Off-screen, any size fits. */
+  fits(_viewport: Viewport = this.viewport): boolean {
+    return true
   }
 
-  /** New capture first, then drop the old one, so the page area never shows blank. */
-  private async restartMirror(): Promise<void> {
-    const previous = this.id
-    this.id = undefined
-    await new Promise((r) => setTimeout(r, 50))
-    await this.connect()
-    this.layout()
-    if (previous !== undefined) setTimeout(() => mirror?.mirrorDestroy(previous), 100)
-  }
-
-
-  /**
-   * Whether the real window can hide behind Swivel at this size. It must fit inside Swivel's
-   * window (otherwise its edges would show) — always true for Fill window.
-   */
-  fits(viewport: Viewport = this.viewport): boolean {
-    const content = this.win.getContentBounds()
-    return viewport.width <= content.width && viewport.height <= content.height
-  }
-
-  /**
-   * Too big to hide: shrink the real window to fit behind Swivel while the page keeps its full
-   * viewport. The page is streamed from it meanwhile. (Minimizing would stop input.)
-   */
+  /** No mirror: the page is streamed from the parked window instead. */
   suspend(): void {
     if (this.suspended) return
     this.suspended = true

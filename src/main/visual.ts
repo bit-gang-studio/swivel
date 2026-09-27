@@ -96,5 +96,16 @@ export async function visualCheck(win: BrowserWindow, dir: string): Promise<void
   win.restore()
   await sleep(3500)
   await shot('swivel-restored')
+  // Move Swivel: the mirror follows, and no real Firefox window shows anywhere.
+  win.setBounds({ x: 250, y: 120, width: 1100, height: 750 })
+  await sleep(3000)
+  await shot('swivel-moved')
+  if (process.platform === 'darwin') {
+    // Firefox processes the Dock may show: every one must be background or UI element only.
+    const { stdout } = await run('lsappinfo', ['list']).catch(() => ({ stdout: '' }))
+    const nightly = stdout.split(/\n(?=\s*\d+\) ")/).filter((a) => /Nightly|firefox|plugin-container/i.test(a))
+    console.log(`VISUAL firefox apps: ${nightly.length}`)
+    for (const a of nightly) console.log(`VISUAL ${a.match(/"[^"]*"/)?.[0]} ${a.match(/type="[^"]*"/)?.[0] ?? a.match(/Foreground|UIElement|BackgroundOnly/)?.[0] ?? ''}`)
+  }
   app.exit(0)
 }

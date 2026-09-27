@@ -16,11 +16,12 @@ const exe = firefox.executablePath() // .../firefox-NNNN/firefox/Nightly.app/Con
 const source = dirname(dirname(dirname(exe)))
 const revision = source.match(/firefox-(\d+)/)?.[1] ?? 'unknown'
 const dest = join(homedir(), 'Library/Caches/swivel', `firefox-window-${revision}`, 'Nightly.app')
-const MARKER = 'swivel-patch-v11'
+const MARKER = 'swivel-patch-v12'
 const SWIVEL_NATIVE_TWEAKS = `
 // Swivel: native window tweaks, run from inside Firefox (js-ctypes, Objective-C runtime).
 // - Accessory app: no Dock icon or app switcher entry. Firefox makes itself a regular app at
 //   startup and whenever a window is shown, overriding LSUIElement.
+// - Click-through windows with no shadow.
 // - Transient windows: left out of Mission Control and App Exposé (the window is hidden behind
 //   Swivel, but those views show every window).
 function swivelNativeTweaks(below) {
@@ -50,6 +51,9 @@ function swivelNativeTweaks(below) {
       const current = Number(sendGetULong(w, sel('collectionBehavior')));
       sendVoidULong(w, sel('setCollectionBehavior:'), (current & ~(1 << 2)) | (1 << 3) | (1 << 6));
       behaviors.push(Number(sendGetULong(w, sel('collectionBehavior'))));
+      // Click-through, no shadow: the window is parked off-screen and only ever seen mirrored.
+      sendVoidULong(w, sel('setIgnoresMouseEvents:'), 1);
+      sendVoidULong(w, sel('setHasShadow:'), 0);
       // Directly below Swivel's window (NSWindowBelow = -1), never in front of it.
       if (below && sendGetBool(w, sel('isVisible'))) sendOrder(w, sel('orderWindow:relativeTo:'), -1, below);
     }

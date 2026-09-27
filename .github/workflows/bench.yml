@@ -55,7 +55,9 @@ jobs:
         if: always() && runner.os != 'Windows'
         with:
           name: screenshots-${{ runner.os }}
-          path: screenshots/
+          path: |
+            screenshots/
+            ~/Library/Logs/swivel/
           if-no-files-found: ignore
       - name: App test (Linux)
         timeout-minutes: 8

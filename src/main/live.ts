@@ -4,7 +4,7 @@ import { chromium, firefox, webkit, type BrowserContext, type BrowserType, type 
 import type { EngineId, Frame, InputEvent, LiveOptions, ViewRect } from '../shared/types'
 import type { Emit, PageView } from './view'
 import { FrameSource } from './frames'
-import { FirefoxWindow, refreshPatchedCode, windowedFirefoxStatus, windowedLaunchOptions } from './firefox-window'
+import { FirefoxWindow, parkingSpot, refreshPatchedCode, windowedFirefoxStatus, windowedLaunchOptions } from './firefox-window'
 import { findInPage, type FindRequest } from '../shared/find'
 
 const types: Record<EngineId, BrowserType> = { chromium, firefox, webkit }
@@ -20,8 +20,7 @@ function getContext(engine: EngineId, win?: BrowserWindow): Promise<BrowserConte
   if (!context && engine === 'firefox' && win && windowedFirefoxStatus() === 'on') {
     const profile = join(app.getPath('userData'), 'profiles', engine)
     refreshPatchedCode(profile)
-    const content = win.getContentBounds()
-    context = firefox.launchPersistentContext(profile, windowedLaunchOptions({ width: 1280, height: 800 }, { x: content.x, y: content.y + 40 }))
+    context = firefox.launchPersistentContext(profile, windowedLaunchOptions({ width: 1280, height: 800 }, parkingSpot()))
     context.catch(() => contexts.delete(engine))
     contexts.set(engine, context)
   }
@@ -175,7 +174,7 @@ export class StreamedView implements PageView {
         if (this.visible) window.show()
         this.chooseRendering()
       } else {
-        // No mirror: keep the real window shrunk behind Swivel and stream frames from it.
+        // No mirror: stream frames from the parked window.
         window.suspend()
         this.hiddenWindow = window
       }
@@ -198,7 +197,7 @@ export class StreamedView implements PageView {
     return page
   }
 
-  /** Real window mirrored when the size fits behind Swivel; otherwise stream frames from the same page. */
+  /** Real window mirrored when it fits; otherwise stream frames from the same page. */
   private chooseRendering(): void {
     if (!this.window || !this.opts) return
     debug(this.engine, 'rendering', this.window.fits(this.opts.viewport) ? 'mirror' : 'frames (too big to hide)', JSON.stringify(this.opts.viewport))
