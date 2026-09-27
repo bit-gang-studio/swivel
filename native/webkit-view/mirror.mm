@@ -193,7 +193,32 @@ static Napi::Value MirrorDestroy(const Napi::CallbackInfo& info) {
   return info.Env().Undefined();
 }
 
+// windowFrames(pid): that process's windows as macOS sees them (no permission needed for bounds).
+static Napi::Value WindowFrames(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  pid_t pid = info[0].As<Napi::Number>().Int32Value();
+  Napi::Array out = Napi::Array::New(env);
+  CFArrayRef list = CGWindowListCopyWindowInfo(kCGWindowListOptionAll, kCGNullWindowID);
+  uint32_t n = 0;
+  for (NSDictionary* w in (__bridge NSArray*)list) {
+    if ([w[(id)kCGWindowOwnerPID] intValue] != pid) continue;
+    NSDictionary* b = w[(id)kCGWindowBounds];
+    if ([b[@"Width"] doubleValue] < 100) continue;
+    Napi::Object o = Napi::Object::New(env);
+    o.Set("x", [b[@"X"] doubleValue]);
+    o.Set("y", [b[@"Y"] doubleValue]);
+    o.Set("width", [b[@"Width"] doubleValue]);
+    o.Set("height", [b[@"Height"] doubleValue]);
+    o.Set("onScreen", [w[(id)kCGWindowIsOnscreen] boolValue]);
+    o.Set("layer", [w[(id)kCGWindowLayer] intValue]);
+    out.Set(n++, o);
+  }
+  if (list) CFRelease(list);
+  return out;
+}
+
 void InitMirror(Napi::Env env, Napi::Object exports) {
+  exports.Set("windowFrames", Napi::Function::New(env, WindowFrames));
   exports.Set("screenCaptureAccess", Napi::Function::New(env, ScreenCaptureAccess));
   exports.Set("requestScreenCaptureAccess", Napi::Function::New(env, RequestScreenCaptureAccess));
   exports.Set("mirrorCreate", Napi::Function::New(env, MirrorCreate));

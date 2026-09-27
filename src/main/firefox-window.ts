@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { app, type BrowserWindow } from 'electron'
@@ -23,9 +23,28 @@ interface MirrorAddon {
   mirrorResizeSource(id: number, w: number, h: number): void
   mirrorSetHidden(id: number, hidden: boolean): void
   mirrorDestroy(id: number): void
+  windowFrames(pid: number): { x: number; y: number; width: number; height: number; onScreen: boolean; layer: number }[]
 }
 
-const debugLog = (...args: unknown[]) => process.env.SWIVEL_DEBUG && console.log('[swivel] firefox', ...args)
+/**
+ * Diagnostics for the real Firefox window, always written to Swivel's log folder
+ * (~/Library/Logs/swivel/firefox-window.log), since placement depends on the user's screen setup.
+ */
+let logFile: string | undefined
+const debugLog = (...args: unknown[]) => {
+  const line = `${new Date().toISOString()} ${args.map(String).join(' ')}`
+  if (process.env.SWIVEL_DEBUG) console.log('[swivel] firefox', line)
+  try {
+    if (!logFile) {
+      mkdirSync(app.getPath('logs'), { recursive: true })
+      logFile = join(app.getPath('logs'), 'firefox-window.log')
+      writeFileSync(logFile, '')
+    }
+    appendFileSync(logFile, line + '\n')
+  } catch {
+    // Logging is best effort.
+  }
+}
 
 const addon = webkitAddon as unknown as Partial<MirrorAddon> | null
 const mirror: MirrorAddon | null = addon && typeof addon.mirrorCreate === 'function' ? (addon as MirrorAddon) : null
@@ -119,7 +138,7 @@ export class FirefoxWindow {
     this.win.focus()
     if (process.platform === 'darwin') app.focus({ steal: true })
     if (!(await this.connect())) return false
-    debugLog('mirroring Firefox window', JSON.stringify(this.viewport))
+    debugLog('mirroring', JSON.stringify({ viewport: this.viewport, at: this.at }))
     this.layout()
     return true
   }
@@ -142,6 +161,7 @@ export class FirefoxWindow {
       if (this.id === undefined) await new Promise((r) => setTimeout(r, 150))
     }
     if (this.id === undefined) {
+      debugLog('mirror failed', lastError)
       console.log(`Swivel: couldn't mirror the Firefox window (${lastError}); streaming instead`)
       return false
     }
@@ -165,7 +185,8 @@ export class FirefoxWindow {
     const y = Math.round(content.y + box.y + box.height / 2 - this.viewport.height / 2)
     const at = await session?.send('Page.moveWindow', { x, y }).catch((err: unknown) => String(err))
     if (at && typeof at === 'object' && 'x' in at) this.at = at as { x: number; y: number }
-    debugLog('placed Firefox window', JSON.stringify({ asked: { x, y }, got: at, content }))
+    const pid = firefoxPid(this.context)
+    debugLog('placed', JSON.stringify({ asked: { x, y }, firefoxSays: at, swivelContent: content, rect: this.rect, viewport: this.viewport, macOS: pid ? mirror?.windowFrames(pid) : null }))
   }
 
   private windowHidden = false
