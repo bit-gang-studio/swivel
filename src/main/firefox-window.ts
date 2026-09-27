@@ -59,7 +59,9 @@ export function windowedLaunchOptions(viewport: Viewport) {
     headless: false,
     executablePath: patchedFirefox()!,
     viewport,
-    firefoxUserPrefs: { 'swivel.chromeless': true }
+    firefoxUserPrefs: { 'swivel.chromeless': true },
+    // Playwright's -foreground flag makes Firefox a regular app, overriding the no-Dock-icon setting.
+    ignoreDefaultArgs: ['-foreground']
   }
 }
 
@@ -100,10 +102,10 @@ export class FirefoxWindow {
       void this.place()
       this.onFitChange?.()
     })
-    on('minimize', () => this.minimize(true))
-    on('hide', () => this.minimize(true))
-    on('restore', () => this.minimize(false))
-    on('show', () => this.minimize(false))
+    on('minimize', () => void this.setWindowVisible(false))
+    on('hide', () => void this.setWindowVisible(false))
+    on('restore', () => void this.setWindowVisible(true))
+    on('show', () => void this.setWindowVisible(true))
   }
 
   /** Find and mirror the Firefox window. Retries while macOS lists the new window. */
@@ -113,6 +115,14 @@ export class FirefoxWindow {
     await this.place()
     this.win.focus()
     if (process.platform === 'darwin') app.focus({ steal: true })
+    if (!(await this.connect())) return false
+    debugLog('mirroring Firefox window', JSON.stringify(this.viewport))
+    this.layout()
+    return true
+  }
+
+  /** Start capturing the Firefox window. Retries while macOS lists the new window. */
+  private async connect(): Promise<boolean> {
     const pid = firefoxPid(this.context)
     if (!mirror || !pid) {
       console.log('Swivel: Firefox window mirror unavailable (no process id); streaming instead')
@@ -132,8 +142,6 @@ export class FirefoxWindow {
       console.log(`Swivel: couldn't mirror the Firefox window (${lastError}); streaming instead`)
       return false
     }
-    debugLog('mirroring Firefox window', JSON.stringify(this.viewport))
-    this.layout()
     return true
   }
 
@@ -156,9 +164,26 @@ export class FirefoxWindow {
     debugLog('placed Firefox window', JSON.stringify({ asked: { x, y }, got: at, content }))
   }
 
-  private minimize(minimized: boolean): void {
-    void jugglerSession(this.page)?.send('Page.setWindowMinimized', { minimized }).catch(() => {})
-    if (!minimized) void this.place()
+  private windowHidden = false
+
+  /**
+   * While Swivel is minimized or hidden, the real window would show on its own, so hide it
+   * entirely (minimizing would add a Dock thumbnail). The capture is restarted when it returns.
+   */
+  private async setWindowVisible(visible: boolean): Promise<void> {
+    if (visible === !this.windowHidden) return
+    this.windowHidden = !visible
+    await jugglerSession(this.page)?.send('Page.setWindowVisible', { visible }).catch(() => {})
+    if (!visible) return
+    await this.place()
+    await this.restartMirror()
+  }
+
+  private async restartMirror(): Promise<void> {
+    if (this.id !== undefined) mirror?.mirrorDestroy(this.id)
+    this.id = undefined
+    await this.connect()
+    this.layout()
   }
 
   /**

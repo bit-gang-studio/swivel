@@ -73,5 +73,16 @@ export async function visualCheck(win: BrowserWindow, dir: string): Promise<void
     await sleep(1500)
     await shot(`${engine}-find`)
   }
+  // Minimize Swivel with Firefox shown: the hidden Firefox window must not appear (or leave a Dock
+  // thumbnail), and it must come back mirrored when Swivel is restored.
+  await click('Firefox')
+  await ui(`document.querySelector('.findbar button[aria-label="Close find"]')?.click()`)
+  await sleep(3000)
+  win.minimize()
+  await sleep(2500)
+  await shot('swivel-minimized')
+  win.restore()
+  await sleep(3500)
+  await shot('swivel-restored')
   app.exit(0)
 }

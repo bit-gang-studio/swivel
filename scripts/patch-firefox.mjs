@@ -16,7 +16,7 @@ const exe = firefox.executablePath() // .../firefox-NNNN/firefox/Nightly.app/Con
 const source = dirname(dirname(dirname(exe)))
 const revision = source.match(/firefox-(\d+)/)?.[1] ?? 'unknown'
 const dest = join(homedir(), 'Library/Caches/swivel', `firefox-window-${revision}`, 'Nightly.app')
-const MARKER = 'swivel-patch-v2'
+const MARKER = 'swivel-patch-v3'
 const run = (cmd, args, opts = {}) => execFileSync(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], ...opts }).toString()
 
 if (!existsSync(exe)) {
@@ -54,6 +54,12 @@ patch(`${juggler}/protocol/PageHandler.js`, "  async ['Page.setZoom']({zoom}) {"
     if (minimized) win.minimize(); else win.restore();
   }
 
+  async ['Page.setWindowVisible']({visible}) {
+    // Hides the window entirely (no Dock thumbnail, unlike minimizing) or shows it again.
+    const win = this._pageTarget._window;
+    win.docShell.treeOwner.QueryInterface(Ci.nsIBaseWindow).visibility = visible;
+  }
+
   async ['Page.setWindowSize']({width, height}) {
     // Resizes the window only; the page keeps its viewport size (the browser stack scrolls).
     this._pageTarget._window.resizeTo(width, height);
@@ -69,6 +75,9 @@ patch(`${juggler}/protocol/Protocol.js`, "    'setZoom': {", `    'moveWindow': 
     },
     'setWindowSize': {
       params: { width: t.Number, height: t.Number },
+    },
+    'setWindowVisible': {
+      params: { visible: t.Boolean },
     },
     'setZoom': {`)
 patch(`${juggler}/TargetRegistry.js`, '    const features = "chrome,dialog=no,all";', `    // Swivel: borderless windows with no browser UI, placed behind Swivel and captured.
