@@ -180,6 +180,7 @@ export class StreamedView implements PageView {
     page.on('load', () => this.emit('loading', false))
     page.on('framenavigated', (frame) => {
       if (frame !== page.mainFrame()) return
+      debug(this.engine, 'navigated', frame.url().slice(0, 60))
       this.loadedUrl = frame.url()
       this.emit('url', frame.url())
       this.frames?.reset()
@@ -356,6 +357,7 @@ export class StreamedView implements PageView {
       case 'down':
         debug(this.engine, 'mouse down', e.x, e.y)
         await this.moveTo(page, e.x, e.y)
+        if (process.env.SWIVEL_DEBUG) debug(this.engine, 'element at click', await page.evaluate(({ x, y }) => { const el = document.elementFromPoint(x, y); return el ? el.tagName + '#' + el.id + ' vp ' + innerWidth + 'x' + innerHeight : 'none' }, { x: e.x, y: e.y }).catch((err) => String(err)))
         return page.mouse.down({ button: e.button })
       case 'up':
         await this.moveTo(page, e.x, e.y)

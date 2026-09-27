@@ -6,6 +6,10 @@ import { _electron as electron } from 'playwright'
 export async function withApp(fn, { timeoutMs = 240_000, exit = true } = {}) {
   const app = await electron.launch({ args: ['.'], env: { ...process.env, SWIVEL_HIDDEN: '1' }, timeout: 60_000 })
   const proc = app.process() // Unavailable after app.close(), so keep it now.
+  if (process.env.SWIVEL_DEBUG) {
+    proc.stdout?.on('data', (d) => process.stdout.write(d))
+    proc.stderr?.on('data', (d) => process.stderr.write(d))
+  }
   let code = 0
   const timer = setTimeout(() => {
     console.error(`Timed out after ${timeoutMs} ms`)
