@@ -16,7 +16,7 @@ const exe = firefox.executablePath() // .../firefox-NNNN/firefox/Nightly.app/Con
 const source = dirname(dirname(dirname(exe)))
 const revision = source.match(/firefox-(\d+)/)?.[1] ?? 'unknown'
 const dest = join(homedir(), 'Library/Caches/swivel', `firefox-window-${revision}`, 'Nightly.app')
-const MARKER = 'swivel-patch-v7'
+const MARKER = 'swivel-patch-v8'
 const run = (cmd, args, opts = {}) => execFileSync(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], ...opts }).toString()
 
 if (!existsSync(exe)) {
@@ -121,6 +121,22 @@ patch(`${juggler}/TargetRegistry.js`, `    await waitForWindowReady(window);
       }
     }
     if (window.gBrowser.browsers.length !== 1)`)
+
+patch(`${juggler}/TargetRegistry.js`, `    Services.wm.addListener({ onOpenWindow, onCloseWindow });`, `    // Swivel: drop the Dock icon as soon as Juggler starts, not only when a window opens.
+    if (Services.prefs.getBoolPref("swivel.chromeless", false)) {
+      try {
+        const { ctypes } = ChromeUtils.importESModule('resource://gre/modules/ctypes.sys.mjs');
+        const objc = ctypes.open('/usr/lib/libobjc.A.dylib');
+        const id = ctypes.voidptr_t;
+        const getClass = objc.declare('objc_getClass', ctypes.default_abi, id, ctypes.char.ptr);
+        const sel = objc.declare('sel_registerName', ctypes.default_abi, id, ctypes.char.ptr);
+        const send = objc.declare('objc_msgSend', ctypes.default_abi, id, id, id);
+        const sendLong = objc.declare('objc_msgSend', ctypes.default_abi, ctypes.bool, id, id, ctypes.long);
+        sendLong(send(getClass('NSApplication'), sel('sharedApplication')), sel('setActivationPolicy:'), 1);
+        objc.close();
+      } catch (e) {}
+    }
+    Services.wm.addListener({ onOpenWindow, onCloseWindow });`)
 
 rmSync(join(res, 'omni.ja'))
 run('zip', ['-qr9XD', join(res, 'omni.ja'), '.'], { cwd: work })
