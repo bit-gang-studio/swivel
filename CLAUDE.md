@@ -12,8 +12,8 @@ Desktop dev browser. Switch browser engines and screen sizes, and compare them. 
 npm run dev
 npm run typecheck
 npm test
-npm run browsers   # install Playwright browsers
-npm run build:native   # macOS: build the Safari addon
+npm run browsers   # install Playwright browsers (+ patched Firefox on macOS)
+npm run build:native   # macOS: build the native module (Safari view, window mirror)
 ```
 
 ## Rules

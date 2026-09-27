@@ -21,7 +21,7 @@ Backends:
 |---|---|---|---|
 | Chromium | Native | Native | Electron's own Chromium in a `WebContentsView` (`native-chrome.ts`) |
 | WebKit | Native | Streamed | Apple's WKWebView via an N-API addon in `native/webkit-view` (`native-safari.ts`) |
-| Firefox | Streamed | Streamed | Playwright, frames drawn on a canvas (`live.ts`, `frames.ts`) |
+| Firefox | Real window, mirrored | Streamed | Mac: `firefox-window.ts`. Elsewhere: Playwright frames on a canvas (`live.ts`, `frames.ts`) |
 
 **Native** views are laid over the page area, so they are real-time, like a normal browser. The page lays out at the viewport width and is scaled to fit:
 
@@ -32,7 +32,9 @@ A DevTools size override draws at full size outside the view, so it isn't used e
 
 **Streamed** engines run headless in Playwright at the screen's pixel density, so they're sharp on Retina screens. Chromium-style screencast caps Firefox and WebKit near 25 fps, so they poll screenshots at up to 60 fps, drop duplicates, and slow down when idle. Input is replayed in order, with moves and wheel events coalesced. No browser call can block navigation or input. All engines prewarm at launch.
 
-No embeddable Firefox exists for desktop, so it stays streamed.
+**Real-window Firefox (macOS).** No embeddable Firefox exists, so Swivel runs a real, borderless Firefox window from its own patched copy (`scripts/patch-firefox.mjs`: Juggler gains move/resize/minimize commands, borderless windows with no browser UI, no Dock icon). The window sits directly behind the page area, and a native layer mirrors it with ScreenCaptureKit (`native/webkit-view/mirror.mm`), so it renders on the GPU at the display's refresh rate. Input still goes through the page area and Playwright. Sizes too big to hide behind Swivel shrink the window and stream frames from the same page. Needs the Screen Recording permission (in dev, for your terminal app); without it Firefox is streamed. `SWIVEL_STREAM_FIREFOX=1` forces streaming.
+
+Streamed Firefox calls Firefox's own screenshot command directly (Playwright's waits cost ~33 ms a frame) and sends a lossless frame when the page settles. Its screencast crops above 1x, so it's only used at 1x.
 
 ## Tests
 
@@ -43,7 +45,7 @@ No embeddable Firefox exists for desktop, so it stays streamed.
 - `scripts/bench-live.mjs`, `diag-lag.mjs`, `diag-scroll.mjs`: frame rate and lag.
 - The manual "Live view check" workflow runs these on all three OSes. Run app tests in CI rather than locally: they launch Electron windows.
 
-Browsers are not bundled yet. In development they come from `npm run browsers`. `npm run build:native` builds the Safari addon on macOS.
+Browsers are not bundled yet. In development they come from `npm run browsers`, which also makes the patched Firefox copy on macOS. `npm run build:native` builds the native module (Safari view, window mirror) on macOS. `SWIVEL_DEBUG=1` logs Firefox navigation, rendering mode and clicks.
 
 ## Naming engines
 
