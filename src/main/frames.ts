@@ -29,9 +29,10 @@ const IDLE_AFTER = 30 // unchanged frames before slowing down
  * Firefox and WebKit: their screencast is capped near 25 fps, but screenshots are fast,
  * so poll screenshots at up to 60 fps, drop duplicates, and slow down while the page is idle.
  * Frames are lossless PNG when that keeps up, so text stays crisp, and JPEG otherwise.
- * On heavy pages screenshots can't keep up (each forces a fresh render), so it switches to the
- * engine's screencast, which reuses frames already drawn (a steady ~22 fps even at 2x), and sends
- * one lossless frame whenever the page settles. A navigation resets to screenshots.
+ * On heavy pages at 1x, screenshots can't keep up (each forces a fresh render), so it switches to
+ * the engine's screencast, which reuses frames already drawn (~22 fps), and sends one lossless
+ * frame whenever the page settles. A navigation resets to screenshots. Above 1x the screencast
+ * captures only part of the page, so it isn't used there.
  */
 export class FrameSource {
   private stopped = false
@@ -159,7 +160,8 @@ export class FrameSource {
         })
         const took = performance.now() - started
         cost = cost ? cost * 0.5 + took * 0.5 : took
-        if (cost > CAST_AFTER_MS) {
+        // Screencast frames are cropped (zoomed in) when the page renders above 1x, so it's only used at 1x.
+        if (cost > CAST_AFTER_MS && this.pixelRatio <= 1) {
           // Screenshots can't keep up on this page: switch to the screencast straight away.
           if (!this.stopped) this.onFrame({ data, format: data[0] === 0x89 ? 'png' : 'jpeg', ...this.size })
           void this.cast()
