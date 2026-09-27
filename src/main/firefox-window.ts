@@ -201,8 +201,10 @@ export class FirefoxWindow {
     this.expected = { x, y, width: this.viewport.width, height: this.viewport.height }
     const at = await session?.send('Page.moveWindow', { x, y }).catch((err: unknown) => String(err))
     if (at && typeof at === 'object' && 'x' in at) this.at = at as { x: number; y: number }
+    // Firefox resets its window behaviors when it shows a window; keep it out of Mission Control.
+    const tweaks = await session?.send('Page.nativeTweaks', {}).catch((err: unknown) => ({ result: String(err) }))
     const pid = firefoxPid(this.context)
-    debugLog('placed', JSON.stringify({ asked: { x, y }, firefoxSays: at, swivelContent: content, rect: this.rect, viewport: this.viewport, macOS: pid ? mirror?.windowFrames(pid) : null }))
+    debugLog('placed', JSON.stringify({ tweaks: (tweaks as { result?: string } | undefined)?.result }), JSON.stringify({ asked: { x, y }, firefoxSays: at, swivelContent: content, rect: this.rect, viewport: this.viewport, macOS: pid ? mirror?.windowFrames(pid) : null }))
   }
 
   /**
@@ -215,6 +217,7 @@ export class FirefoxWindow {
     if (!pid || !mirror) return
     this.watchdog = setInterval(() => {
       if (this.windowHidden || !this.expected || this.placing) return
+      if (++this.ticks % 4 === 0) void jugglerSession(this.page)?.send('Page.nativeTweaks', {}).catch(() => {})
       const frames = mirror.windowFrames(pid).filter((f) => f.layer === 0 && f.onScreen)
       const e = this.expected
       // Mission Control and App Exposé show windows scaled down; that's not a real move.
@@ -242,6 +245,7 @@ export class FirefoxWindow {
   private statsTimer?: ReturnType<typeof setInterval>
 
   private placing = false
+  private ticks = 0
 
   private windowHidden = false
   /** Where the window actually is (screen points), for finding it to mirror. */

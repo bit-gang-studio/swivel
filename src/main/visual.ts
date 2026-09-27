@@ -82,6 +82,14 @@ export async function visualCheck(win: BrowserWindow, dir: string): Promise<void
   await click('Firefox')
   await ui(`document.querySelector('.findbar button[aria-label="Close find"]')?.click()`)
   await sleep(3000)
+  // Mission Control shows every window; the hidden Firefox window must not be among them.
+  if (process.platform === 'darwin') {
+    await run('open', ['-a', 'Mission Control']).catch(() => {})
+    await sleep(2500)
+    await shot('mission-control')
+    await run('open', ['-a', 'Mission Control']).catch(() => {})
+    await sleep(1500)
+  }
   win.minimize()
   await sleep(2500)
   await shot('swivel-minimized')

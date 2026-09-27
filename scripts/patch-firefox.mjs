@@ -16,7 +16,7 @@ const exe = firefox.executablePath() // .../firefox-NNNN/firefox/Nightly.app/Con
 const source = dirname(dirname(dirname(exe)))
 const revision = source.match(/firefox-(\d+)/)?.[1] ?? 'unknown'
 const dest = join(homedir(), 'Library/Caches/swivel', `firefox-window-${revision}`, 'Nightly.app')
-const MARKER = 'swivel-patch-v9'
+const MARKER = 'swivel-patch-v10'
 const SWIVEL_NATIVE_TWEAKS = `
 // Swivel: native window tweaks, run from inside Firefox (js-ctypes, Objective-C runtime).
 // - Accessory app: no Dock icon or app switcher entry. Firefox makes itself a regular app at
@@ -35,18 +35,24 @@ function swivelNativeTweaks() {
     const sendCount = objc.declare('objc_msgSend', ctypes.default_abi, ctypes.unsigned_long, id, id);
     const sendLong = objc.declare('objc_msgSend', ctypes.default_abi, ctypes.bool, id, id, ctypes.long);
     const sendVoidULong = objc.declare('objc_msgSend', ctypes.default_abi, ctypes.void_t, id, id, ctypes.unsigned_long);
+    const sendGetULong = objc.declare('objc_msgSend', ctypes.default_abi, ctypes.unsigned_long, id, id);
     const app = send(getClass('NSApplication'), sel('sharedApplication'));
     sendLong(app, sel('setActivationPolicy:'), 1); // NSApplicationActivationPolicyAccessory
     const windows = send(app, sel('windows'));
     const count = sendCount(windows, sel('count'));
+    const behaviors = [];
     for (let i = 0; i < count; i++) {
       const w = sendIndex(windows, sel('objectAtIndex:'), i);
-      // Transient (1 << 3) | IgnoresCycle (1 << 6)
-      sendVoidULong(w, sel('setCollectionBehavior:'), (1 << 3) | (1 << 6));
+      // Transient (1 << 3) | IgnoresCycle (1 << 6), keeping any other flags Firefox set
+      // (except Managed (1 << 2), which conflicts with Transient).
+      const current = Number(sendGetULong(w, sel('collectionBehavior')));
+      sendVoidULong(w, sel('setCollectionBehavior:'), (current & ~(1 << 2)) | (1 << 3) | (1 << 6));
+      behaviors.push(Number(sendGetULong(w, sel('collectionBehavior'))));
     }
     objc.close();
+    return { windows: Number(count), behaviors };
   } catch (e) {
-    dump('swivel: native tweaks failed: ' + e + String.fromCharCode(10));
+    return { error: String(e) };
   }
 }
 `
@@ -95,6 +101,10 @@ patch(`${juggler}/protocol/PageHandler.js`, "  async ['Page.setZoom']({zoom}) {"
     if (visible) swivelNativeTweaks();
   }
 
+  async ['Page.nativeTweaks']() {
+    return { result: JSON.stringify(swivelNativeTweaks()) };
+  }
+
   async ['Page.setWindowSize']({width, height}) {
     // Resizes the window only; the page keeps its viewport size (the browser stack scrolls).
     this._pageTarget._window.resizeTo(width, height);
@@ -113,6 +123,10 @@ patch(`${juggler}/protocol/Protocol.js`, "    'setZoom': {", `    'moveWindow': 
     },
     'setWindowVisible': {
       params: { visible: t.Boolean },
+    },
+    'nativeTweaks': {
+      params: {},
+      returns: { result: t.String },
     },
     'setZoom': {`)
 patch(`${juggler}/TargetRegistry.js`, '    const features = "chrome,dialog=no,all";', `    // Swivel: borderless windows with no browser UI, placed behind Swivel and captured.
