@@ -16,7 +16,7 @@ const exe = firefox.executablePath() // .../firefox-NNNN/firefox/Nightly.app/Con
 const source = dirname(dirname(dirname(exe)))
 const revision = source.match(/firefox-(\d+)/)?.[1] ?? 'unknown'
 const dest = join(homedir(), 'Library/Caches/swivel', `firefox-window-${revision}`, 'Nightly.app')
-const MARKER = 'swivel-patch-v6'
+const MARKER = 'swivel-patch-v7'
 const run = (cmd, args, opts = {}) => execFileSync(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], ...opts }).toString()
 
 if (!existsSync(exe)) {
@@ -58,6 +58,20 @@ patch(`${juggler}/protocol/PageHandler.js`, "  async ['Page.setZoom']({zoom}) {"
     // Hides the window entirely (no Dock thumbnail, unlike minimizing) or shows it again.
     const win = this._pageTarget._window;
     win.docShell.treeOwner.QueryInterface(Ci.nsIBaseWindow).visibility = visible;
+    // Showing a window makes Firefox a regular app again (Dock icon); switch it back.
+    if (visible) {
+      try {
+        const { ctypes } = ChromeUtils.importESModule('resource://gre/modules/ctypes.sys.mjs');
+        const objc = ctypes.open('/usr/lib/libobjc.A.dylib');
+        const id = ctypes.voidptr_t;
+        const getClass = objc.declare('objc_getClass', ctypes.default_abi, id, ctypes.char.ptr);
+        const sel = objc.declare('sel_registerName', ctypes.default_abi, id, ctypes.char.ptr);
+        const send = objc.declare('objc_msgSend', ctypes.default_abi, id, id, id);
+        const sendLong = objc.declare('objc_msgSend', ctypes.default_abi, ctypes.bool, id, id, ctypes.long);
+        sendLong(send(getClass('NSApplication'), sel('sharedApplication')), sel('setActivationPolicy:'), 1);
+        objc.close();
+      } catch (e) {}
+    }
   }
 
   async ['Page.setWindowSize']({width, height}) {
