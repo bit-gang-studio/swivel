@@ -13,7 +13,9 @@ The renderer never touches Playwright directly. It calls `window.swivel.*`, whic
 
 ## Engines
 
-Each window has an `EngineHost` (`src/main/host.ts`) that routes to one of three backends:
+Each window has an `EngineHost` (`src/main/host.ts`) holding one live `PageView` (`view.ts`) per engine, all kept loaded and on the same URL. One is shown and leads: when it navigates on its own, the others follow in the background. Typed URLs, back, forward and reload go to every view; size and dark mode apply without reloading. Views are independent instances, so a window can later show several at once. Each engine has its own persistent profile (logins survive restarts), closed and flushed before quit.
+
+Backends:
 
 | Engine | macOS | Windows, Linux | How |
 |---|---|---|---|
@@ -34,7 +36,8 @@ No embeddable Firefox exists for desktop, so it stays streamed.
 
 ## Tests
 
-- `scripts/e2e-live.mjs`: drives the built app in every engine. Click, type, scroll, and leaving a page that never finishes loading.
+- `scripts/e2e-live.mjs`: drives the built app in every engine. Click, type, scroll, cursor, find, leaving a page that never finishes loading, and other engines following a link.
+- `scripts/e2e-persist.mjs`: a cookie survives an app restart in every engine.
 - `SWIVEL_SELFTEST=1 npx electron .`: checks native engines' size and dark mode with no test runner attached.
 - `SWIVEL_VISUAL=<dir> npx electron .`: real screen captures of every engine and size. Page-reported sizes have passed while the picture was wrong, so look at these after any layout change.
 - `scripts/bench-live.mjs`, `diag-lag.mjs`, `diag-scroll.mjs`: frame rate and lag.
