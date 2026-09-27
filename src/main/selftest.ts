@@ -33,7 +33,7 @@ export async function selfTest(win: BrowserWindow, host: EngineHost): Promise<vo
   await host.setRect({ x: 0, y: 100, width: 400, height: 250 })
   for (const engine of nativeEngines()) {
     const seen = new Promise<string>((resolve) => {
-      host.onConsole = (text) => text.startsWith('dark:') && resolve(text)
+      host.onConsole = (from, text) => from === engine && text.startsWith('dark:') && resolve(text)
       setTimeout(() => resolve('no page output'), 15_000)
     })
     await host.start({ engine: engine as EngineId, url: page + '%3C!--' + engine + '--%3E', viewport: { width: 1280, height: 800 }, colorScheme: 'dark' })

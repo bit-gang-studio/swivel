@@ -3,10 +3,12 @@
 import http from 'node:http'
 import { withApp } from './app-window.mjs'
 
-// A page whose stylesheet never arrives, so it never finishes loading.
+// Local pages: one whose stylesheet never arrives (it never finishes loading), and a second page
+// to follow a link to.
 const slow = http.createServer((req, res) => {
   if (req.url === '/hang.css') return
   res.setHeader('content-type', 'text/html')
+  if (req.url === '/p2') return res.end("<script>console.log('page2')</script><h1>page 2</h1>")
   res.end('<link rel=stylesheet href=/hang.css><h1>slow</h1>')
 }).listen(0)
 const SLOW = `http://127.0.0.1:${slow.address().port}/`
@@ -15,6 +17,7 @@ const PAGE = 'data:text/html,' + encodeURIComponent(`<!doctype html>
 <body style="margin:0;height:4000px">
 <button id=b style="position:fixed;left:0;top:0;width:100%;height:300px;font-size:40px;cursor:pointer">click me</button>
 <input id=i style="position:fixed;left:0;top:320px;width:100%;height:100px;font-size:40px">
+<a id=l href="${SLOW}p2" style="position:fixed;left:0;top:450px;width:100%;height:100px;font-size:40px;display:block">next page</a>
 <script>
 console.log('ready');
 b.onclick=()=>console.log('clicked');
@@ -61,7 +64,7 @@ await withApp(async ({ app, win }) => {
     if (tag === 'WebKit' && natives.includes('webkit')) {
       // Safari is a native WKWebView: input goes straight to it from macOS. Drive the page with
       // script and check its console reaches Swivel.
-      const run = (js) => app.evaluate((_, js) => globalThis.swivelHost.native('webkit').run(js), js)
+      const run = (js) => app.evaluate((_, js) => globalThis.swivelHost.get('webkit').run(js), js)
       const width = await new Promise((resolve) => {
         run("console.log('width:' + innerWidth)")
         const t = setInterval(async () => {
@@ -158,8 +161,21 @@ await withApp(async ({ app, win }) => {
     results.push({ engine: tag, ready, clicked, typed, scrolled, pointer, found, leftSlowPageMs: escapeMs })
   }
 
+  // Sync: click a link in Firefox (streamed on every OS); the other engines must follow.
+  await win.getByRole('group', { name: 'Browser engine' }).getByRole('button', { name: /^Firefox$/ }).click()
+  await win.getByLabel('Address').fill(PAGE.replace("console.log('ready')", "console.log('ready-sync')"))
+  await win.getByLabel('Address').press('Enter')
+  await seen('Firefox', 'ready-sync', 30_000)
+  await win.waitForTimeout(1000)
+  const box = await win.locator('canvas.live').boundingBox()
+  await win.mouse.click(box.x + box.width / 2, box.y + 500 * (box.height / 800))
+  const followed = {}
+  for (const engine of ['Firefox', 'Chromium', 'WebKit']) followed[engine] = await seen(engine, 'page2', 20_000)
+  console.log('followed link:', JSON.stringify(followed))
+  const syncFailed = Object.values(followed).some((ok) => !ok)
+
   if (process.env.SHOT) await win.screenshot({ path: process.env.SHOT })
-  const failed = results.some((r) => !r.ready || !r.clicked || !r.typed || !r.scrolled || !r.pointer || !r.found || r.leftSlowPageMs < 0)
+  const failed = syncFailed || results.some((r) => !r.ready || !r.clicked || !r.typed || !r.scrolled || !r.pointer || !r.found || r.leftSlowPageMs < 0)
   if (failed) {
     console.log('address:', await win.getByLabel('Address').inputValue())
     console.log('status:', await win.locator('.status').allInnerTexts())

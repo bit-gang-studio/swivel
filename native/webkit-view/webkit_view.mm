@@ -107,7 +107,13 @@ static Napi::Value Create(const Napi::CallbackInfo& info) {
   v.events = &eventFns[id];
 
   WKWebViewConfiguration* config = [WKWebViewConfiguration new];
-  config.websiteDataStore = [WKWebsiteDataStore nonPersistentDataStore];
+  // Swivel's own persistent store, so logins survive restarts and stay separate from Safari.
+  if (@available(macOS 14.0, *)) {
+    NSUUID* storeId = [[NSUUID alloc] initWithUUIDString:@"6D8C1B62-2F0E-4E7B-9A51-5317E1C0A5F1"];
+    config.websiteDataStore = [WKWebsiteDataStore dataStoreForIdentifier:storeId];
+  } else {
+    config.websiteDataStore = [WKWebsiteDataStore defaultDataStore];
+  }
   [config.userContentController addScriptMessageHandler:v name:@"swivel"];
   [config.userContentController addUserScript:[[WKUserScript alloc] initWithSource:kConsoleHook
                                                                       injectionTime:WKUserScriptInjectionTimeAtDocumentStart

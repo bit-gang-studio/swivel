@@ -3,7 +3,7 @@
 // even on errors or timeouts, so no stray Electron processes or crash dialogs are left behind.
 import { _electron as electron } from 'playwright'
 
-export async function withApp(fn, { timeoutMs = 240_000 } = {}) {
+export async function withApp(fn, { timeoutMs = 240_000, exit = true } = {}) {
   const app = await electron.launch({ args: ['.'], env: { ...process.env, SWIVEL_HIDDEN: '1' }, timeout: 60_000 })
   const proc = app.process() // Unavailable after app.close(), so keep it now.
   let code = 0
@@ -13,9 +13,10 @@ export async function withApp(fn, { timeoutMs = 240_000 } = {}) {
   }, timeoutMs)
   async function shutdown(exitCode) {
     clearTimeout(timer)
-    await Promise.race([app.close().catch(() => {}), new Promise((r) => setTimeout(r, 5000))])
+    await Promise.race([app.close().catch(() => {}), new Promise((r) => setTimeout(r, 10000))])
     if (proc.exitCode === null) proc.kill('SIGTERM')
-    process.exit(exitCode)
+    if (exit || exitCode !== 0) process.exit(exitCode)
+    return exitCode
   }
   process.once('SIGINT', () => void shutdown(130))
   process.once('SIGTERM', () => void shutdown(143))
@@ -32,5 +33,5 @@ export async function withApp(fn, { timeoutMs = 240_000 } = {}) {
     console.error(err)
     code = 1
   }
-  await shutdown(code)
+  return shutdown(code)
 }

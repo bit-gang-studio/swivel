@@ -1,8 +1,8 @@
 import { app, WebContentsView, type BrowserWindow } from 'electron'
-import type { LiveEvents, LiveOptions, ViewRect, Viewport } from '../shared/types'
+import type { EngineId, InputEvent, LiveOptions, ViewRect } from '../shared/types'
+import type { Emit, PageView } from './view'
 import type { FindRequest } from '../shared/find'
 
-type Emit = <K extends keyof LiveEvents>(event: K, payload: LiveEvents[K]) => void
 
 const LEVELS = { debug: 'debug', info: 'log', warning: 'warning', error: 'error' } as const
 
@@ -11,7 +11,8 @@ const LEVELS = { debug: 'debug', info: 'log', warning: 'warning', error: 'error'
  * No streaming, so it is as fast as a real browser. The view fits the page area and zoom makes
  * the page lay out at the viewport width. Dark mode uses the DevTools protocol.
  */
-export class NativeChrome {
+export class NativeChrome implements PageView {
+  readonly engine: EngineId = 'chromium'
   private view?: WebContentsView
   private opts?: LiveOptions
   private rect?: ViewRect
@@ -30,7 +31,7 @@ export class NativeChrome {
   private create(): WebContentsView {
     const view = new WebContentsView({
       webPreferences: {
-        partition: 'swivel-chrome',
+        partition: 'persist:swivel-chromium', // Its own profile; logins survive restarts.
         sandbox: true,
         contextIsolation: true,
         nodeIntegration: false,
@@ -45,10 +46,15 @@ export class NativeChrome {
     wc.on('did-stop-loading', () => this.emit('loading', false))
     wc.on('did-navigate', (_e, url) => {
       if (url === 'about:blank') return
+      if (this.opts) this.opts = { ...this.opts, url } // Where it really is, so updates don't reload it.
       this.emit('url', url)
       void this.applyEmulation() // Reapply in case navigation swapped renderer processes.
     })
-    wc.on('did-navigate-in-page', (_e, url, isMainFrame) => isMainFrame && this.emit('url', url))
+    wc.on('did-navigate-in-page', (_e, url, isMainFrame) => {
+      if (!isMainFrame) return
+      if (this.opts) this.opts = { ...this.opts, url }
+      this.emit('url', url)
+    })
     wc.on('did-fail-load', (_e, code, desc, url, isMainFrame) => {
       if (isMainFrame && code !== -3) this.emit('error', `${desc} (${url})`) // -3 is an aborted load
     })
@@ -68,12 +74,26 @@ export class NativeChrome {
     return view
   }
 
-  /** The latest start(). Navigation waits for it, so a startup load can't replace a typed URL. */
+  /** The latest update(). Navigation waits for it, so a startup load can't replace a typed URL. */
   private starting: Promise<void> = Promise.resolve()
 
-  start(opts: LiveOptions): Promise<void> {
+  update(opts: LiveOptions): Promise<void> {
     this.starting = this.open(opts)
     return this.starting
+  }
+
+  show(): void {
+    this.active = true
+    if (this.view && this.rect) this.view.setVisible(true)
+  }
+
+  hide(): void {
+    this.active = false
+    this.view?.setVisible(false)
+  }
+
+  input(_e: InputEvent): void {
+    // Native: the OS delivers input directly.
   }
 
   private async open(opts: LiveOptions): Promise<void> {
@@ -83,7 +103,6 @@ export class NativeChrome {
     this.active = true
     await this.blank
     await this.applyEmulation()
-    view.setVisible(!!this.rect)
     if (!sameUrl || view.webContents.getURL() === 'about:blank') this.load(opts.url)
   }
 
@@ -117,12 +136,6 @@ export class NativeChrome {
       return
     }
     wc.findInPage(req.text, { forward: !req.backwards, findNext: req.restart })
-  }
-
-  async resize(viewport: Viewport): Promise<void> {
-    if (!this.opts) return
-    this.opts = { ...this.opts, viewport }
-    await this.applyEmulation()
   }
 
   /** Where the page area is in the window, in window pixels. Sent by the UI when layout changes. */
@@ -167,12 +180,6 @@ export class NativeChrome {
         new Promise((r) => setTimeout(r, 1000))
       ])
     }
-  }
-
-  /** Hide without unloading, so switching back is instant. */
-  stop(): void {
-    this.active = false
-    this.view?.setVisible(false)
   }
 
   destroy(): void {

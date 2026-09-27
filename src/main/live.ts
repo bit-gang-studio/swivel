@@ -1,27 +1,38 @@
-import { chromium, firefox, webkit, type Browser, type BrowserContext, type BrowserType, type Page } from 'playwright-core'
-import type { EngineId, InputEvent, LiveEvents, LiveOptions, Viewport } from '../shared/types'
+import { join } from 'node:path'
+import { app, screen } from 'electron'
+import { chromium, firefox, webkit, type BrowserContext, type BrowserType, type Page } from 'playwright-core'
+import type { EngineId, InputEvent, LiveOptions, ViewRect } from '../shared/types'
+import type { Emit, PageView } from './view'
 import { FrameSource } from './frames'
 import { findInPage, type FindRequest } from '../shared/find'
 
 const types: Record<EngineId, BrowserType> = { chromium, firefox, webkit }
-const browsers = new Map<EngineId, Promise<Browser>>()
+const contexts = new Map<EngineId, Promise<BrowserContext>>()
 
-function getBrowser(engine: EngineId): Promise<Browser> {
-  let browser = browsers.get(engine)
-  if (!browser) {
-    browser = types[engine].launch({ headless: true })
-    browser.catch(() => browsers.delete(engine))
-    browsers.set(engine, browser)
+/**
+ * One persistent context per engine, so logins and site data survive restarts. Each engine has
+ * its own profile, like separate browsers. Falls back to a throwaway context if the profile is
+ * locked (another Swivel window or instance is using it).
+ */
+function getContext(engine: EngineId): Promise<BrowserContext> {
+  let context = contexts.get(engine)
+  if (!context) {
+    const options = { headless: true, viewport: { width: 1280, height: 800 }, deviceScaleFactor: screen.getPrimaryDisplay().scaleFactor }
+    context = types[engine]
+      .launchPersistentContext(join(app.getPath('userData'), 'profiles', engine), options)
+      .catch(async () => (await types[engine].launch({ headless: true })).newContext(options))
+    context.catch(() => contexts.delete(engine))
+    contexts.set(engine, context)
   }
-  return browser
+  return context
 }
 
-/** Start every engine in the background so the first switch is fast and warmed up. */
-export function prewarmBrowsers(): void {
-  for (const engine of Object.keys(types) as EngineId[]) {
-    void getBrowser(engine)
-      .then(async (browser) => {
-        const page = await browser.newPage()
+/** Start streamed engines in the background so the first switch is fast and warmed up. */
+export function prewarmBrowsers(engines: EngineId[]): void {
+  for (const engine of engines) {
+    void getContext(engine)
+      .then(async (context) => {
+        const page = await context.newPage()
         const end = Date.now() + 3000
         while (Date.now() < end) await page.screenshot({ type: 'jpeg', quality: 80 })
         await page.close()
@@ -31,12 +42,10 @@ export function prewarmBrowsers(): void {
 }
 
 export async function closeAllBrowsers(): Promise<void> {
-  const all = await Promise.allSettled(browsers.values())
-  browsers.clear()
-  await Promise.all(all.map((b) => (b.status === 'fulfilled' ? b.value.close() : undefined)))
+  const all = await Promise.allSettled(contexts.values())
+  contexts.clear()
+  await Promise.all(all.map((c) => (c.status === 'fulfilled' ? c.value.close().catch(() => {}) : undefined)))
 }
-
-type Emit = <K extends keyof LiveEvents>(event: K, payload: LiveEvents[K]) => void
 
 /** Resolve with the fallback if a browser call takes too long, so one stuck call never freezes the app. */
 function within<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
@@ -62,70 +71,100 @@ const message = (err: unknown) => (err instanceof Error ? err.message.split('\n'
 const superseded = (err: unknown) => /interrupted by another navigation|NS_BINDING_ABORTED|Navigation.*aborted|frame was detached|Target.*closed|has been closed/i.test(message(err))
 
 /**
- * One live, clickable page. Frames stream out through FrameSource and
- * mouse/keyboard input is replayed into the page.
+ * A streamed page: runs headless in Playwright, frames are drawn on a canvas in the UI, and
+ * mouse/keyboard input is replayed into the page. The page stays alive while hidden.
  */
-export class LiveSession {
-  private context?: BrowserContext
+export class StreamedView implements PageView {
+  readonly engine: EngineId
   private page?: Page
   private frames?: FrameSource
   private opts?: LiveOptions
-  private generation = 0
+  private loadedUrl?: string
+  private visible = false
   private emit: Emit
-  /** Resolves once the current page exists. Never waits for a page to finish loading. */
+  /** Resolves once the page exists. Never waits for a page to finish loading. */
   private ready: Promise<void> = Promise.resolve()
 
-  constructor(emit: Emit) {
+  constructor(engine: EngineId, emit: Emit) {
+    this.engine = engine
     this.emit = emit
   }
 
-  start(opts: LiveOptions): Promise<void> {
-    this.ready = this.open(opts)
+  update(opts: LiveOptions): Promise<void> {
+    const previous = this.ready
+    this.ready = previous.then(() => this.apply(opts))
     return this.ready
   }
 
-  private async open(opts: LiveOptions): Promise<void> {
-    const gen = ++this.generation
-    const scrollY = this.opts && this.opts.url === opts.url && this.page ? await within(this.page.evaluate(() => window.scrollY), 300, 0) : 0
-    this.stop()
+  private async apply(opts: LiveOptions): Promise<void> {
+    const sizeChanged = !this.opts || this.opts.viewport.width !== opts.viewport.width || this.opts.viewport.height !== opts.viewport.height
     this.opts = opts
     try {
-      const browser = await getBrowser(opts.engine)
-      if (gen !== this.generation) return
-      const context = await browser.newContext({
-        viewport: opts.viewport,
-        colorScheme: opts.colorScheme,
-        deviceScaleFactor: Math.min(3, Math.max(1, opts.pixelRatio ?? 1))
-      })
-      if (gen !== this.generation) return void context.close().catch(() => {})
-      const page = await context.newPage()
-      this.context = context
-      this.page = page
-
-      page.on('console', (msg) => this.emit('console', { engine: opts.engine, type: msg.type(), text: msg.text() }))
-      page.on('pageerror', (err) => this.emit('console', { engine: opts.engine, type: 'error', text: err.message }))
-      page.on('request', (req) => {
-        if (req.isNavigationRequest() && req.frame() === page.mainFrame()) this.emit('loading', true)
-      })
-      page.on('load', () => this.emit('loading', false))
-      page.on('framenavigated', (frame) => {
-        if (frame === page.mainFrame()) this.emit('url', frame.url())
-        this.frames?.wake()
-      })
-
-      this.frames = new FrameSource(page, opts.engine, opts.viewport, (f) => {
-        if (gen !== this.generation) return
-        this.emit('frame', { engine: opts.engine, data: new Uint8Array(f.data), format: f.format, width: f.width, height: f.height })
-        // The page changed under the mouse (it loaded, or a hover effect ran), so the cursor may have too.
-        if (this.mouseAt.x >= 0) this.probeCursor()
-      })
-      await this.frames.start()
-      void this.load(page, () => page.goto(opts.url, { waitUntil: 'load', timeout: 30_000 })).then(async () => {
-        if (scrollY && gen === this.generation) await within(page.evaluate((y) => window.scrollTo(0, y), scrollY), 1000, undefined)
-      })
+      const page = this.page ?? (await this.createPage())
+      if (sizeChanged) {
+        await within(page.setViewportSize(opts.viewport), 3000, undefined)
+        await this.frames?.setSize(opts.viewport)
+      }
+      await within(page.emulateMedia({ colorScheme: opts.colorScheme }), 3000, undefined)
+      if (this.loadedUrl !== opts.url) {
+        this.loadedUrl = opts.url
+        void this.load(page, () => page.goto(opts.url, { waitUntil: 'load', timeout: 30_000 }))
+      }
     } catch (err) {
-      if (gen === this.generation) this.emit('error', message(err))
+      this.emit('error', message(err))
     }
+  }
+
+  private async createPage(): Promise<Page> {
+    const context = await getContext(this.engine)
+    const page = await context.newPage()
+    this.page = page
+    page.on('console', (msg) => this.emit('console', { engine: this.engine, type: msg.type(), text: msg.text() }))
+    page.on('pageerror', (err) => this.emit('console', { engine: this.engine, type: 'error', text: err.message }))
+    page.on('request', (req) => {
+      if (req.isNavigationRequest() && req.frame() === page.mainFrame()) this.emit('loading', true)
+    })
+    page.on('load', () => this.emit('loading', false))
+    page.on('framenavigated', (frame) => {
+      if (frame !== page.mainFrame()) return
+      this.loadedUrl = frame.url()
+      this.emit('url', frame.url())
+      this.frames?.wake()
+    })
+    if (this.visible) this.startFrames()
+    return page
+  }
+
+  private startFrames(): void {
+    const page = this.page
+    if (!page || !this.opts || this.frames) return
+    const frames = new FrameSource(page, this.engine, this.opts.viewport, (f) => {
+      if (frames !== this.frames) return
+      this.emit('frame', { engine: this.engine, data: new Uint8Array(f.data), format: f.format, width: f.width, height: f.height })
+      // The page changed under the mouse (it loaded, or a hover effect ran), so the cursor may have too.
+      if (this.mouseAt.x >= 0) this.probeCursor()
+    })
+    this.frames = frames
+    void frames.start()
+  }
+
+  /** Stream frames. Hidden views keep their page but send nothing. */
+  show(): void {
+    this.visible = true
+    this.startFrames()
+  }
+
+  hide(): void {
+    this.visible = false
+    this.frames?.stop()
+    this.frames = undefined
+    this.pending = []
+    this.mouseAt = { x: -1, y: -1 }
+    this.lastCursor = ''
+  }
+
+  async setRect(_rect: ViewRect): Promise<void> {
+    // Streamed frames are drawn by the UI wherever it likes.
   }
 
   /** Run a navigation in the background and report real failures. */
@@ -149,21 +188,12 @@ export class LiveSession {
     this.frames?.wake()
   }
 
-  /** Change the viewport without reloading the page. */
-  async resize(viewport: Viewport): Promise<void> {
-    await this.ready
-    const page = this.page
-    if (!page || !this.opts) return
-    this.opts = { ...this.opts, viewport }
-    await within(page.setViewportSize(viewport), 3000, undefined)
-    await this.frames?.setSize(viewport)
-  }
-
   async navigate(url: string): Promise<void> {
     await this.ready
     const page = this.page
     if (!page || !this.opts) return
     this.opts = { ...this.opts, url }
+    this.loadedUrl = url
     void this.load(page, () => page.goto(url, { waitUntil: 'load', timeout: 30_000 }))
   }
 
@@ -254,16 +284,15 @@ export class LiveSession {
     }
   }
 
-  /** Close the current page without waiting, so switching engines is instant. */
-  stop(): void {
-    this.frames?.stop()
-    this.frames = undefined
-    this.pending = []
-    this.mouseAt = { x: -1, y: -1 }
-    this.lastCursor = ''
-    const context = this.context
-    this.context = undefined
+  /** Test hook: run script in the page. */
+  run(script: string): void {
+    void this.page?.evaluate(script).catch(() => {})
+  }
+
+  destroy(): void {
+    this.hide()
+    const page = this.page
     this.page = undefined
-    void context?.close().catch(() => {})
+    void page?.close().catch(() => {})
   }
 }

@@ -1,8 +1,8 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, session, shell } from 'electron'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { closeAllBrowsers, prewarmBrowsers } from './live'
-import { EngineHost, nativeEngines } from './host'
+import { EngineHost, nativeEngines, streamedEngines } from './host'
 import { selfTest } from './selftest'
 import { visualCheck } from './visual'
 import { installMenu } from './menu'
@@ -74,7 +74,7 @@ ipcMain.on('swivel:input', (e, input: InputEvent) => sessions.get(e.sender.id)?.
 app.whenReady().then(() => {
   installMenu()
   createWindow()
-  prewarmBrowsers()
+  prewarmBrowsers(streamedEngines())
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
@@ -84,6 +84,12 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
-app.on('before-quit', () => {
-  void closeAllBrowsers()
+// Close engines before quitting, so persistent profiles (logins) are written to disk.
+let quitting = false
+app.on('before-quit', (event) => {
+  if (quitting) return
+  quitting = true
+  event.preventDefault()
+  const flush = session.fromPartition('persist:swivel-chromium').cookies.flushStore().catch(() => {})
+  void Promise.race([Promise.all([closeAllBrowsers(), flush]), new Promise((r) => setTimeout(r, 5000))]).then(() => app.quit())
 })
