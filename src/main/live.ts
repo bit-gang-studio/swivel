@@ -114,7 +114,7 @@ export class StreamedView implements PageView {
 
   /** Drawn by a native layer rather than frames on the canvas. */
   get drawsNatively(): boolean {
-    return !!this.window
+    return this.mirrored
   }
 
   update(opts: LiveOptions): Promise<void> {
@@ -132,6 +132,7 @@ export class StreamedView implements PageView {
         await within(page.setViewportSize(opts.viewport), 3000, undefined)
         await this.frames?.setSize(opts.viewport)
         this.window?.resize(opts.viewport)
+        this.chooseRendering()
       }
       await within(page.emulateMedia({ colorScheme: opts.colorScheme }), 3000, undefined)
       if (this.loadedUrl !== opts.url) {
@@ -163,7 +164,9 @@ export class StreamedView implements PageView {
       if (this.rect) window.setRect(this.rect)
       if (await window.start()) {
         this.window = window
+        window.onFitChange = () => this.chooseRendering()
         if (this.visible) window.show()
+        this.chooseRendering()
       } else window.destroy()
     }
     page.on('console', (msg) => this.emit('console', { engine: this.engine, type: msg.type(), text: msg.text() }))
@@ -183,9 +186,26 @@ export class StreamedView implements PageView {
     return page
   }
 
+  /** Real window mirrored when the size fits behind Swivel; otherwise stream frames from the same page. */
+  private chooseRendering(): void {
+    if (!this.window || !this.opts) return
+    if (this.window.fits(this.opts.viewport)) {
+      this.window.resume()
+      this.frames?.stop()
+      this.frames = undefined
+    } else {
+      this.window.suspend()
+      if (this.visible) this.startFrames()
+    }
+  }
+
+  private get mirrored(): boolean {
+    return !!this.window && !!this.opts && this.window.fits(this.opts.viewport)
+  }
+
   private startFrames(): void {
     const page = this.page
-    if (!page || !this.opts || this.frames || this.window) return
+    if (!page || !this.opts || this.frames || this.mirrored) return
     const frames = new FrameSource(page, this.engine, this.opts.viewport, (f) => {
       if (frames !== this.frames) return
       this.lastFrame = { engine: this.engine, data: new Uint8Array(f.data), format: f.format, width: f.width, height: f.height }
@@ -203,7 +223,7 @@ export class StreamedView implements PageView {
   show(): void {
     this.visible = true
     this.window?.show()
-    if (this.lastFrame && !this.window) this.emit('frame', this.lastFrame)
+    if (this.lastFrame && !this.mirrored) this.emit('frame', this.lastFrame)
     this.startFrames()
   }
 

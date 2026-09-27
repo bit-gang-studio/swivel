@@ -78,7 +78,11 @@ export class FirefoxWindow {
   private rect?: ViewRect
   private id?: number
   private visible = false
+  /** Minimized because the size doesn't fit (the page is streamed meanwhile). */
+  private suspended = false
   private listeners: [string, () => void][] = []
+  /** Called when the Swivel window resizes, since that can change whether the page fits. */
+  onFitChange?: () => void
 
   constructor(win: BrowserWindow, context: BrowserContext, page: Page, viewport: Viewport) {
     this.win = win
@@ -90,7 +94,10 @@ export class FirefoxWindow {
       this.listeners.push([event, fn])
     }
     on('move', () => this.place())
-    on('resize', () => this.place())
+    on('resize', () => {
+      void this.place()
+      this.onFitChange?.()
+    })
     on('minimize', () => this.minimize(true))
     on('hide', () => this.minimize(true))
     on('restore', () => this.minimize(false))
@@ -127,14 +134,40 @@ export class FirefoxWindow {
   }
 
   private minimize(minimized: boolean): void {
+    if (!minimized && this.suspended) return // Stays minimized while the size doesn't fit.
     void jugglerSession(this.page)?.send('Page.setWindowMinimized', { minimized }).catch(() => {})
     if (!minimized) void this.place()
+  }
+
+  /**
+   * Whether the real window can hide behind Swivel at this size. It must fit inside Swivel's
+   * window (otherwise its edges would show) — always true for Fill window.
+   */
+  fits(viewport: Viewport = this.viewport): boolean {
+    const content = this.win.getContentBounds()
+    return viewport.width <= content.width && viewport.height <= content.height
+  }
+
+  /** Too big to hide: minimize the real window; the page is streamed meanwhile. */
+  suspend(): void {
+    if (this.suspended) return
+    this.suspended = true
+    this.layout()
+    void jugglerSession(this.page)?.send('Page.setWindowMinimized', { minimized: true }).catch(() => {})
+  }
+
+  resume(): void {
+    if (!this.suspended) return
+    this.suspended = false
+    void jugglerSession(this.page)?.send('Page.setWindowMinimized', { minimized: false }).catch(() => {})
+    void this.place()
+    this.layout()
   }
 
   private layout(): void {
     if (this.id === undefined || !mirror) return
     if (this.rect) mirror.mirrorSetFrame(this.id, this.rect.x, this.rect.y, this.rect.width, this.rect.height)
-    mirror.mirrorSetHidden(this.id, !this.visible || !this.rect)
+    mirror.mirrorSetHidden(this.id, !this.visible || !this.rect || this.suspended)
   }
 
   setRect(rect: ViewRect): void {
