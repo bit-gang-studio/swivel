@@ -16,7 +16,7 @@ const exe = firefox.executablePath() // .../firefox-NNNN/firefox/Nightly.app/Con
 const source = dirname(dirname(dirname(exe)))
 const revision = source.match(/firefox-(\d+)/)?.[1] ?? 'unknown'
 const dest = join(homedir(), 'Library/Caches/swivel', `firefox-window-${revision}`, 'Nightly.app')
-const MARKER = 'swivel-patch-v15'
+const MARKER = 'swivel-patch-v18'
 const SWIVEL_NATIVE_TWEAKS = `
 // Swivel: native window tweaks, run from inside Firefox (js-ctypes, Objective-C runtime).
 // - Accessory app: no Dock icon or app switcher entry. Firefox makes itself a regular app at
@@ -25,6 +25,22 @@ const SWIVEL_NATIVE_TWEAKS = `
 // - Transient windows: left out of Mission Control and App Exposé (the window is hidden behind
 //   Swivel, but those views show every window).
 // - park: {x, y} (Cocoa screen points) moves visible windows there, fully off-screen.
+// Parked off-screen, macOS tells Firefox the window is occluded and Firefox stops rendering it at
+// full speed. Its window delegate's windowDidChangeOcclusionState: is replaced, once, with a no-op
+// (NSObject's -self), so Firefox never hears about it.
+let swivelIgnoringOcclusion = false;
+function swivelIgnoreOcclusion(ctypes, objc, id, sel, send, w) {
+  if (swivelIgnoringOcclusion) return;
+  swivelIgnoringOcclusion = true;
+  const classNamed = objc.declare('objc_getClass', ctypes.default_abi, id, ctypes.char.ptr);
+  const classOf = objc.declare('object_getClass', ctypes.default_abi, id, id);
+  const method = objc.declare('class_getInstanceMethod', ctypes.default_abi, id, id, id);
+  const impOf = objc.declare('method_getImplementation', ctypes.default_abi, id, id);
+  const replace = objc.declare('class_replaceMethod', ctypes.default_abi, id, id, id, id, ctypes.char.ptr);
+  const noop = impOf(method(classNamed('NSObject'), sel('self')));
+  const delegate = send(w, sel('delegate'));
+  if (!delegate.isNull()) replace(classOf(delegate), sel('windowDidChangeOcclusionState:'), noop, 'v@:@');
+}
 function swivelNativeTweaks(below, park) {
   try {
     const { ctypes } = ChromeUtils.importESModule('resource://gre/modules/ctypes.sys.mjs');
@@ -61,6 +77,7 @@ function swivelNativeTweaks(below, park) {
       if (park && sendGetBool(w, sel('isVisible'))) {
         // Borderless (style mask 0): macOS keeps part of a titled window on screen, even when moved
         // directly.
+        swivelIgnoreOcclusion(ctypes, objc, id, sel, send, w);
         sendVoidULong(w, sel('setStyleMask:'), 0);
         sendPoint(w, sel('setFrameOrigin:'), new NSPoint(park.x, park.y));
       }
