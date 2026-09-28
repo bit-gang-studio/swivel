@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, session, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, shell } from 'electron'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { closeAllBrowsers, prewarmBrowsers } from './live'
@@ -40,6 +40,7 @@ function createWindow(): BrowserWindow {
 
   if (process.env.SWIVEL_HIDDEN) win.showInactive()
   const id = win.webContents.id
+  // Each window has its own data (cookies, storage, cache), shared with no other window.
   const host = new EngineHost(win, (event, payload) => {
     if (!win.isDestroyed()) win.webContents.send(`swivel:${event}`, payload)
   })
@@ -74,6 +75,7 @@ ipcMain.on('swivel:native-engines', (e) => (e.returnValue = nativeEngines()))
 ipcMain.handle('swivel:find', (e, req: FindRequest) => sessions.get(e.sender.id)?.find(req))
 ipcMain.handle('swivel:resize', (e, viewport: Viewport) => sessions.get(e.sender.id)?.resize(viewport))
 ipcMain.handle('swivel:rect', (e, rect: ViewRect) => sessions.get(e.sender.id)?.setRect(rect))
+ipcMain.handle('swivel:clear-data', (e) => sessions.get(e.sender.id)?.clearData())
 ipcMain.on('swivel:input', (e, input: InputEvent) => sessions.get(e.sender.id)?.input(input))
 
 app.whenReady().then(() => {
@@ -90,7 +92,7 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
-// Close engines before quitting, so persistent profiles (logins) are written to disk.
+// Close engines before quitting, so no browser process is left behind.
 let quitting = false
 app.on('before-quit', (event) => {
   if (quitting) return
@@ -100,6 +102,5 @@ app.on('before-quit', (event) => {
   // capture can crash it.
   for (const host of sessions.values()) host.destroy()
   sessions.clear()
-  const flush = session.fromPartition('persist:swivel-chromium').cookies.flushStore().catch(() => {})
-  void Promise.race([Promise.all([closeAllBrowsers(), flush]), new Promise((r) => setTimeout(r, 5000))]).then(() => app.quit())
+  void Promise.race([closeAllBrowsers(), new Promise((r) => setTimeout(r, 5000))]).then(() => app.quit())
 })

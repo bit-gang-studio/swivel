@@ -88,6 +88,18 @@ static NSString* const kConsoleHook = @"(() => {"
 static std::map<int, SwivelWebView*> views;
 static std::map<int, EventFn> eventFns;
 static int nextId = 1;
+static std::map<std::string, WKWebsiteDataStore*> stores;
+
+static WKWebsiteDataStore* StoreFor(const std::string& key) {
+  WKWebsiteDataStore* store = stores[key];
+  if (!store) store = stores[key] = [WKWebsiteDataStore nonPersistentDataStore];
+  return store;
+}
+
+static Napi::Value ReleaseStore(const Napi::CallbackInfo& info) {
+  stores.erase(info[0].As<Napi::String>().Utf8Value());
+  return info.Env().Undefined();
+}
 
 static SwivelWebView* Get(const Napi::CallbackInfo& info) {
   auto it = views.find(info[0].As<Napi::Number>().Int32Value());
@@ -107,13 +119,9 @@ static Napi::Value Create(const Napi::CallbackInfo& info) {
   v.events = &eventFns[id];
 
   WKWebViewConfiguration* config = [WKWebViewConfiguration new];
-  // Swivel's own persistent store, so logins survive restarts and stay separate from Safari.
-  if (@available(macOS 14.0, *)) {
-    NSUUID* storeId = [[NSUUID alloc] initWithUUIDString:@"6D8C1B62-2F0E-4E7B-9A51-5317E1C0A5F1"];
-    config.websiteDataStore = [WKWebsiteDataStore dataStoreForIdentifier:storeId];
-  } else {
-    config.websiteDataStore = [WKWebsiteDataStore defaultDataStore];
-  }
+  // Each Swivel window's own in-memory data store (info[2] is its key), shared with no other
+  // window and separate from Safari. Gone when released.
+  config.websiteDataStore = StoreFor(info.Length() > 2 && info[2].IsString() ? info[2].As<Napi::String>().Utf8Value() : "");
   [config.userContentController addScriptMessageHandler:v name:@"swivel"];
   [config.userContentController addUserScript:[[WKUserScript alloc] initWithSource:kConsoleHook
                                                                       injectionTime:WKUserScriptInjectionTimeAtDocumentStart
@@ -235,6 +243,7 @@ static Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("evaluate", Napi::Function::New(env, Evaluate));
   exports.Set("evaluateWithResult", Napi::Function::New(env, EvaluateWithResult));
   exports.Set("destroy", Napi::Function::New(env, Destroy));
+  exports.Set("releaseStore", Napi::Function::New(env, ReleaseStore));
   return exports;
 }
 

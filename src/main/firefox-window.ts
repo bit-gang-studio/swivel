@@ -61,30 +61,6 @@ function patchedFirefox(): string | null {
   return existsSync(exe) ? exe : null
 }
 
-/**
- * Firefox caches its compiled internal code (including Playwright's Juggler, which Swivel patches)
- * in the profile's startupCache and keeps using it while the build ID is unchanged. After the patch
- * changes, clear that cache, or the old patch keeps running.
- */
-export function refreshPatchedCode(profileDir: string): void {
-  const exe = patchedFirefox()
-  if (!exe) return
-  const resources = join(dirname(dirname(exe)), 'Resources')
-  const marker = readdirSync(resources).find((f) => f.startsWith('swivel-patch-')) ?? ''
-  const stamp = join(profileDir, 'swivel-patch')
-  let seen = ''
-  try {
-    seen = readFileSync(stamp, 'utf8')
-  } catch {
-    // First run with this profile.
-  }
-  if (seen === marker) return
-  rmSync(join(profileDir, 'startupCache'), { recursive: true, force: true })
-  mkdirSync(profileDir, { recursive: true })
-  writeFileSync(stamp, marker)
-  debugLog('cleared Firefox startup cache for', marker)
-}
-
 export type WindowedStatus = 'on' | 'needs-permission' | 'not-installed' | 'unsupported'
 
 export function windowedFirefoxStatus(): WindowedStatus {
@@ -115,14 +91,11 @@ function takeSlot(): number {
   return slot
 }
 
-/** Launch options for the windowed Firefox context. `at` is where its window first opens. */
-export function windowedLaunchOptions(viewport: Viewport, at: { x: number; y: number }, scale: number) {
+/** Launch options for the windowed Firefox browser. `at` is where its first window opens. */
+export function windowedLaunchOptions(at: { x: number; y: number }) {
   return {
     headless: false,
     executablePath: patchedFirefox()!,
-    viewport,
-    // Off-screen, the window gets a 1x backing; the page still renders at the display's density.
-    deviceScaleFactor: scale,
     firefoxUserPrefs: { 'swivel.chromeless': true, 'swivel.windowX': Math.round(at.x), 'swivel.windowY': Math.round(at.y) },
     // -foreground makes Firefox a regular app (Dock icon); -silent skips its default startup window.
     ignoreDefaultArgs: ['-foreground'],

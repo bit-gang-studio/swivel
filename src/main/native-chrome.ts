@@ -23,7 +23,10 @@ export class NativeChrome implements PageView {
   private win: BrowserWindow
   private emit: Emit
 
-  constructor(win: BrowserWindow, emit: Emit) {
+  private partition: string
+
+  constructor(win: BrowserWindow, emit: Emit, partition: string) {
+    this.partition = partition
     this.win = win
     this.emit = emit
   }
@@ -31,7 +34,7 @@ export class NativeChrome implements PageView {
   private create(): WebContentsView {
     const view = new WebContentsView({
       webPreferences: {
-        partition: 'persist:swivel-chromium', // Its own profile; logins survive restarts.
+        partition: this.partition, // The Swivel profile's own storage; logins survive restarts.
         sandbox: true,
         contextIsolation: true,
         nodeIntegration: false,

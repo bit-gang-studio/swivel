@@ -18,7 +18,8 @@ const ICONS = {
   forward: 'M5 12h14M12 5l7 7-7 7',
   reload: 'M21 12a9 9 0 1 1-2.6-6.4L21 8M21 3v5h-5',
   moon: 'M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z',
-  console: 'M4 17l6-5-6-5M12 19h8'
+  console: 'M4 17l6-5-6-5M12 19h8',
+  trash: 'M4 7h16M10 11v6M14 11v6M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-12M9 7V4h6v3'
 }
 
 const platform = window.swivel.platform
@@ -195,6 +196,18 @@ export function App() {
             ))}
           </select>
         </label>
+        <button
+          type="button"
+          className="icon"
+          aria-label="Clear data"
+          title="Clear this window's data: cookies, storage and cache, in every engine"
+          onClick={() => {
+            setError(null)
+            void window.swivel.clearData()
+          }}
+        >
+          <Icon d={ICONS.trash} />
+        </button>
         <button type="button" className="icon" aria-label="Dark mode" title="Dark mode" aria-pressed={dark} onClick={() => setDark(!dark)}>
           <Icon d={ICONS.moon} />
         </button>

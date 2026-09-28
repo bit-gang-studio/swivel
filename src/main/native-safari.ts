@@ -6,7 +6,10 @@ import { findInPage, type FindRequest, type FindResult } from '../shared/find'
 
 
 interface Addon {
-  create(parent: Buffer, onEvent: (type: string, a: string, b: string) => void): number
+  /** store: the Swivel window's data key; views with the same key share one in-memory data store. */
+  create(parent: Buffer, onEvent: (type: string, a: string, b: string) => void, store: string): number
+  /** Drop a window's data store (once its views are gone). */
+  releaseStore?(store: string): void
   setFrame(id: number, x: number, y: number, w: number, h: number, vw: number, vh: number): void
   load(id: number, url: string): void
   history(id: number, action: string): void
@@ -43,7 +46,10 @@ export class NativeSafari implements PageView {
   private results = new Map<string, (value: string) => void>()
   private nextRequest = 1
 
-  constructor(win: BrowserWindow, emit: Emit, addon: Addon) {
+  private store: string
+
+  constructor(win: BrowserWindow, emit: Emit, addon: Addon, store: string) {
+    this.store = store
     this.win = win
     this.emit = emit
     this.addon = addon
@@ -59,7 +65,7 @@ export class NativeSafari implements PageView {
       }
       else if (type === 'error') this.emit('error', a)
       else if (type === 'result') this.results.get(a)?.(b)
-    })
+    }, this.store)
   }
 
   async update(opts: LiveOptions): Promise<void> {

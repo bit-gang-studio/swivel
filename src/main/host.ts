@@ -5,6 +5,9 @@ import { StreamedView } from './live'
 import { NativeChrome } from './native-chrome'
 import { NativeSafari, webkitAddon } from './native-safari'
 import type { Emit, PageView } from './view'
+import { randomUUID } from 'node:crypto'
+import { session } from 'electron'
+import { releaseContexts } from './live'
 
 const ENGINES: EngineId[] = ['chromium', 'firefox', 'webkit']
 
@@ -42,10 +45,31 @@ export class EngineHost {
   /** How many times start() has run. The self-test waits for the UI's first start. */
   starts = 0
 
+  /**
+   * This window's data (cookies, storage, cache) in every engine, shared with no other window and
+   * kept in memory only: it's gone when the window closes.
+   */
+  private storageId = randomUUID()
+  private rect?: ViewRect
+
   constructor(win: BrowserWindow, emit: Emit) {
     this.win = win
     this.emit = emit
   }
+
+  /** Wipe this window's data: every view is rebuilt on fresh storage, on the same page. */
+  clearData(): Promise<void> {
+    const url = this.active ? this.urls.get(this.active) : undefined
+    this.destroy()
+    this.urls.clear()
+    this.storageId = randomUUID()
+    const { settings, active } = this
+    this.clearing = settings && active ? this.start({ ...settings, ...(url ? { url } : {}), engine: active }) : Promise.resolve()
+    return this.clearing
+  }
+
+  /** A clear in progress: navigation waits for it, so the old page can't win. */
+  private clearing: Promise<void> = Promise.resolve()
 
   private view(engine: EngineId): PageView {
     let view = this.views.get(engine)
@@ -53,11 +77,12 @@ export class EngineHost {
       const emit: Emit = (event, payload) => this.fromView(engine, event, payload)
       view =
         engine === 'chromium'
-          ? new NativeChrome(this.win, emit)
+          ? new NativeChrome(this.win, emit, `swivel-${this.storageId}`)
           : engine === 'webkit' && webkitAddon
-            ? new NativeSafari(this.win, emit, webkitAddon)
-            : new StreamedView(engine, emit, this.win)
+            ? new NativeSafari(this.win, emit, webkitAddon, this.storageId)
+            : new StreamedView(engine, emit, this.storageId, this.win)
       this.views.set(engine, view)
+      if (this.rect) void view.setRect(this.rect)
     }
     return view
   }
@@ -137,6 +162,7 @@ export class EngineHost {
 
   /** Typed URLs and back, forward, reload go to every view. */
   async navigate(url: string): Promise<void> {
+    await this.clearing
     if (this.settings) this.settings = { ...this.settings, url }
     this.broadcasting = true
     for (const e of this.views.keys()) this.urls.set(e, url)
@@ -144,6 +170,7 @@ export class EngineHost {
   }
 
   async history(action: 'back' | 'forward' | 'reload'): Promise<void> {
+    await this.clearing
     this.broadcasting = true
     await Promise.all([...this.views.values()].map((v) => v.history(action)))
   }
@@ -158,11 +185,19 @@ export class EngineHost {
 
   /** Every native view learns the page area; only the shown one appears there. */
   async setRect(rect: ViewRect): Promise<void> {
+    this.rect = rect
     await Promise.all([...this.views.values()].map((v) => v.setRect(rect)))
   }
 
+  /** Close every view and drop this window's data. */
   destroy(): void {
     for (const view of this.views.values()) view.destroy()
     this.views.clear()
+    const id = this.storageId
+    const chrome = session.fromPartition(`swivel-${id}`)
+    void chrome.clearStorageData().catch(() => {})
+    void chrome.clearCache().catch(() => {})
+    webkitAddon?.releaseStore?.(id)
+    void releaseContexts(id)
   }
 }

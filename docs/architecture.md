@@ -13,7 +13,7 @@ The renderer never touches Playwright directly. It calls `window.swivel.*`, whic
 
 ## Engines
 
-Each window has an `EngineHost` (`src/main/host.ts`) holding one live `PageView` (`view.ts`) per engine, all kept loaded and on the same URL. One is shown and leads: when it navigates on its own, the others follow in the background. Typed URLs, back, forward and reload go to every view; size and dark mode apply without reloading. Views are independent instances, so a window can later show several at once. Each engine has its own persistent profile (logins survive restarts), closed and flushed before quit.
+Each window has an `EngineHost` (`src/main/host.ts`) holding one live `PageView` (`view.ts`) per engine, all kept loaded and on the same URL. One is shown and leads: when it navigates on its own, the others follow in the background. Typed URLs, back, forward and reload go to every view; size and dark mode apply without reloading. Views are independent instances, so a window can later show several at once. Each window has its own data (cookies, storage, cache) in every engine, in memory only and shared with no other window: a Chromium partition, a WebKit data store, and a Playwright context per engine. Clear data rebuilds the window's views on fresh storage; closing the window drops it.
 
 Backends:
 
@@ -32,14 +32,14 @@ A DevTools size override draws at full size outside the view, so it isn't used e
 
 **Streamed** engines run headless in Playwright at the screen's pixel density, so they're sharp on Retina screens. Chromium-style screencast caps Firefox and WebKit near 25 fps, so they poll screenshots at up to 60 fps, drop duplicates, and slow down when idle. Input is replayed in order, with moves and wheel events coalesced. No browser call can block navigation or input. All engines prewarm at launch.
 
-**Real-window Firefox (macOS).** No embeddable Firefox exists, so Swivel runs a real, borderless Firefox window from its own patched copy (`scripts/patch-firefox.mjs`: Juggler gains move/resize/minimize commands, borderless windows with no browser UI, no Dock icon). The window is parked off-screen, borderless (macOS keeps part of titled windows on screen) and click-through, with Firefox deaf to occlusion so it keeps rendering at full speed. A native layer mirrors it with ScreenCaptureKit (`native/webkit-view/mirror.mm`), so it renders on the GPU at the display's refresh rate. The page renders at Swivel's display density even though the parked window is 1x. Input still goes through the page area and Playwright. Needs the Screen Recording permission (in dev, for your terminal app); without it Firefox is streamed. Firefox caches its compiled internal code in the profile (`startupCache`), so Swivel clears it whenever the patch changes; otherwise an old patch keeps running. Placement and frame-rate diagnostics go to `~/Library/Logs/swivel/firefox-window.log`. `SWIVEL_STREAM_FIREFOX=1` forces streaming.
+**Real-window Firefox (macOS).** No embeddable Firefox exists, so Swivel runs a real, borderless Firefox window from its own patched copy (`scripts/patch-firefox.mjs`: Juggler gains move/resize/minimize commands, borderless windows with no browser UI, no Dock icon). The window is parked off-screen, borderless (macOS keeps part of titled windows on screen) and click-through, with Firefox deaf to occlusion so it keeps rendering at full speed. A native layer mirrors it with ScreenCaptureKit (`native/webkit-view/mirror.mm`), so it renders on the GPU at the display's refresh rate. The page renders at Swivel's display density even though the parked window is 1x. Input still goes through the page area and Playwright. Needs the Screen Recording permission (in dev, for your terminal app); without it Firefox is streamed. Placement and frame-rate diagnostics go to `~/Library/Logs/swivel/firefox-window.log`. `SWIVEL_STREAM_FIREFOX=1` forces streaming.
 
 Streamed Firefox calls Firefox's own screenshot command directly (Playwright's waits cost ~33 ms a frame) and sends a lossless frame when the page settles. Its screencast crops above 1x, so it's only used at 1x.
 
 ## Tests
 
 - `scripts/e2e-live.mjs`: drives the built app in every engine. Click, type, scroll, cursor, find, leaving a page that never finishes loading, and other engines following a link.
-- `scripts/e2e-persist.mjs`: a cookie survives an app restart in every engine.
+- `scripts/e2e-isolation.mjs`: each window's data is separate in every engine, and Clear data wipes it.
 - `SWIVEL_SELFTEST=1 npx electron .`: checks native engines' size and dark mode with no test runner attached.
 - `SWIVEL_VISUAL=<dir> npx electron .`: real screen captures of every engine and size. Page-reported sizes have passed while the picture was wrong, so look at these after any layout change.
 - `scripts/bench-live.mjs`, `diag-lag.mjs`, `diag-scroll.mjs`: frame rate and lag.

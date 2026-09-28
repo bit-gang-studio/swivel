@@ -14,6 +14,8 @@ const api = {
   /** Change the viewport size without reloading the page. */
   resize: (viewport: Viewport): Promise<void> => ipcRenderer.invoke('swivel:resize', viewport),
   find: (req: FindRequest): Promise<void> => ipcRenderer.invoke('swivel:find', req),
+  /** Wipe this window's cookies, storage and cache in every engine, and reload. */
+  clearData: (): Promise<void> => ipcRenderer.invoke('swivel:clear-data'),
   on<K extends keyof LiveEvents>(event: K, cb: (payload: LiveEvents[K]) => void): () => void {
     const listener = (_: IpcRendererEvent, payload: LiveEvents[K]) => cb(payload)
     ipcRenderer.on(`swivel:${event}`, listener)

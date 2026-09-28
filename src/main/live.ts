@@ -1,62 +1,67 @@
 import { join } from 'node:path'
 import { app, screen, type BrowserWindow } from 'electron'
-import { chromium, firefox, webkit, type BrowserContext, type BrowserType, type Page } from 'playwright-core'
+import { chromium, firefox, webkit, type Browser, type BrowserContext, type BrowserType, type Page } from 'playwright-core'
 import type { EngineId, Frame, InputEvent, LiveOptions, ViewRect } from '../shared/types'
 import type { Emit, PageView } from './view'
 import { FrameSource } from './frames'
-import { FirefoxWindow, parkingSpot, refreshPatchedCode, windowedFirefoxStatus, windowedLaunchOptions } from './firefox-window'
+import { FirefoxWindow, parkingSpot, windowedFirefoxStatus, windowedLaunchOptions } from './firefox-window'
 import { findInPage, type FindRequest } from '../shared/find'
 
 const types: Record<EngineId, BrowserType> = { chromium, firefox, webkit }
-const contexts = new Map<EngineId, Promise<BrowserContext>>()
-/** Pages a browser opened on its own at launch (real-window Firefox closes them). */
-const launchPages = new WeakSet<Page>()
+/** One browser per engine (real-window Firefox is its own), shared by every Swivel window. */
+const browsers = new Map<string, Promise<Browser>>()
+/** Each Swivel window's own context per engine: its cookies, storage and cache, in memory only. */
+const contexts = new Map<string, Promise<BrowserContext>>()
 
-/**
- * One persistent context per engine, so logins and site data survive restarts. Each engine has
- * its own profile, like separate browsers. Falls back to a throwaway context if the profile is
- * locked (another Swivel window or instance is using it).
- */
-function getContext(engine: EngineId, win?: BrowserWindow): Promise<BrowserContext> {
-  let context = contexts.get(engine)
-  if (!context && engine === 'firefox' && win && windowedFirefoxStatus() === 'on') {
-    const profile = join(app.getPath('userData'), 'profiles', engine)
-    refreshPatchedCode(profile)
-    context = firefox
-      .launchPersistentContext(profile, windowedLaunchOptions({ width: 1280, height: 800 }, parkingSpot(), screen.getDisplayMatching(win.getBounds()).scaleFactor))
-      .then((c) => {
-        for (const page of c.pages()) launchPages.add(page)
-        return c
-      })
-    context.catch(() => contexts.delete(engine))
-    contexts.set(engine, context)
-  }
-  if (!context) {
+function getBrowser(engine: EngineId, windowed: boolean): Promise<Browser> {
+  const key = windowed ? 'firefox-window' : engine
+  let browser = browsers.get(key)
+  if (!browser) {
     const scale = screen.getPrimaryDisplay().scaleFactor
-    const options = {
-      headless: true,
-      viewport: { width: 1280, height: 800 },
-      deviceScaleFactor: scale,
-      // Firefox ignores deviceScaleFactor and renders at 1x (blurry on Retina); this pref makes it
-      // render at the screen's real density.
-      ...(engine === 'firefox' ? { firefoxUserPrefs: { 'layout.css.devPixelsPerPx': String(scale) } } : {})
-    }
-    context = types[engine]
-      .launchPersistentContext(join(app.getPath('userData'), 'profiles', engine), options)
-      .catch(async () => (await types[engine].launch({ headless: true, firefoxUserPrefs: options.firefoxUserPrefs })).newContext(options))
-    context.catch(() => contexts.delete(engine))
-    contexts.set(engine, context)
+    browser = windowed
+      ? firefox.launch(windowedLaunchOptions(parkingSpot()))
+      : types[engine].launch({
+          headless: true,
+          // Headless Firefox ignores deviceScaleFactor and renders at 1x (blurry on Retina); this
+          // pref makes it render at the screen's real density.
+          ...(engine === 'firefox' ? { firefoxUserPrefs: { 'layout.css.devPixelsPerPx': String(scale) } } : {})
+        })
+    browser.catch(() => browsers.delete(key))
+    browsers.set(key, browser)
+  }
+  return browser
+}
+
+function getContext(engine: EngineId, storageId: string, win?: BrowserWindow): Promise<BrowserContext> {
+  const key = `${engine}:${storageId}`
+  let context = contexts.get(key)
+  if (!context) {
+    const windowed = engine === 'firefox' && !!win && windowedFirefoxStatus() === 'on'
+    // Real-window Firefox is parked off-screen at 1x; the page still renders at the display's density.
+    const scale = windowed ? screen.getDisplayMatching(win!.getBounds()).scaleFactor : screen.getPrimaryDisplay().scaleFactor
+    context = getBrowser(engine, windowed).then((b) => b.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: scale }))
+    context.catch(() => contexts.delete(key))
+    contexts.set(key, context)
   }
   return context
+}
+
+/** Close a Swivel window's contexts (its data goes with them). */
+export async function releaseContexts(storageId: string): Promise<void> {
+  for (const [key, context] of contexts) {
+    if (!key.endsWith(`:${storageId}`)) continue
+    contexts.delete(key)
+    void context.then((c) => c.close()).catch(() => {})
+  }
 }
 
 /** Start streamed engines in the background so the first switch is fast and warmed up. */
 export function prewarmBrowsers(engines: EngineId[]): void {
   for (const engine of engines) {
     if (engine === 'firefox' && windowedFirefoxStatus() === 'on') continue // Launched with its first page.
-    void getContext(engine)
-      .then(async (context) => {
-        const page = await context.newPage()
+    void getBrowser(engine, false)
+      .then(async (browser) => {
+        const page = await browser.newPage()
         const end = Date.now() + 3000
         while (Date.now() < end) await page.screenshot({ type: 'jpeg', quality: 80 })
         await page.close()
@@ -66,9 +71,10 @@ export function prewarmBrowsers(engines: EngineId[]): void {
 }
 
 export async function closeAllBrowsers(): Promise<void> {
-  const all = await Promise.allSettled(contexts.values())
   contexts.clear()
-  await Promise.all(all.map((c) => (c.status === 'fulfilled' ? c.value.close().catch(() => {}) : undefined)))
+  const all = await Promise.allSettled(browsers.values())
+  browsers.clear()
+  await Promise.all(all.map((b) => (b.status === 'fulfilled' ? b.value.close().catch(() => {}) : undefined)))
 }
 
 /** Resolve with the fallback if a browser call takes too long, so one stuck call never freezes the app. */
@@ -119,7 +125,10 @@ export class StreamedView implements PageView {
   private context?: BrowserContext
   private onPopup?: (popup: Page) => void
 
-  constructor(engine: EngineId, emit: Emit, win?: BrowserWindow) {
+  private storageId: string
+
+  constructor(engine: EngineId, emit: Emit, storageId: string, win?: BrowserWindow) {
+    this.storageId = storageId
     this.engine = engine
     this.emit = emit
     this.win = win
@@ -158,14 +167,12 @@ export class StreamedView implements PageView {
   }
 
   private async createPage(): Promise<Page> {
-    const context = await getContext(this.engine, this.win)
+    const context = await getContext(this.engine, this.storageId, this.win)
     const page = await context.newPage()
     this.page = page
     if (this.engine === 'firefox' && this.win && windowedFirefoxStatus() === 'on' && this.opts) {
-      // Real-window mode: close the window Firefox opens at launch, mirror this page's window, and
-      // load links this page opens in new windows here instead (a stray window would show on
-      // screen). Other Swivel windows' pages are left alone.
-      for (const other of context.pages()) if (launchPages.has(other)) await other.close().catch(() => {})
+      // Real-window mode: mirror this page's window, and load links it opens in new windows here
+      // instead (a stray window would show on screen).
       this.onPopup = (popup: Page) => {
         void popup.opener().then(async (opener) => {
           if (!opener || opener !== this.page) return

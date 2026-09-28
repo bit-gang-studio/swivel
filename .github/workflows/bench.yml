@@ -63,15 +63,15 @@ jobs:
         timeout-minutes: 8
         if: runner.os == 'Linux'
         run: xvfb-run -a node scripts/e2e-live.mjs
-      - name: Logins survive restart (Linux)
+      - name: Window data isolation (Linux)
         timeout-minutes: 5
         if: runner.os == 'Linux'
-        run: xvfb-run -a node scripts/e2e-persist.mjs
+        run: xvfb-run -a node scripts/e2e-isolation.mjs
       - name: App test
         timeout-minutes: 8
         if: runner.os != 'Linux'
         run: node scripts/e2e-live.mjs
-      - name: Logins survive restart
+      - name: Window data isolation
         timeout-minutes: 5
         if: runner.os != 'Linux'
-        run: node scripts/e2e-persist.mjs
+        run: node scripts/e2e-isolation.mjs
