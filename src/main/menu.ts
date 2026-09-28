@@ -5,7 +5,7 @@ import { requestScreenRecording, windowedFirefoxStatus } from './firefox-window'
  * App menu. Shortcuts live here, not in the page UI, so they work even when a native engine
  * view has keyboard focus. Commands go to the focused window's UI as 'command' events.
  */
-export function installMenu(): void {
+export function installMenu(newWindow: () => void): void {
   const send = (command: string) => () => {
     const win = BrowserWindow.getFocusedWindow()
     if (!win) return
@@ -15,7 +15,14 @@ export function installMenu(): void {
   const mac = process.platform === 'darwin'
   const template: MenuItemConstructorOptions[] = [
     ...(mac ? [{ role: 'appMenu' as const }] : []),
-    { role: 'fileMenu' },
+    {
+      label: 'File',
+      submenu: [
+        { label: 'New Window', accelerator: 'CmdOrCtrl+N', click: () => newWindow() },
+        { type: 'separator' },
+        { role: mac ? 'close' : 'quit' }
+      ]
+    },
     { role: 'editMenu' },
     {
       label: 'View',

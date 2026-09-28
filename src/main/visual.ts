@@ -13,20 +13,20 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
  * No test runner is attached, so this runs exactly the code path users get. CI uploads the
  * images for a person (or Claude) to look at. Then quits.
  */
-export async function visualCheck(win: BrowserWindow, dir: string): Promise<void> {
+export async function visualCheck(win: BrowserWindow, dir: string, newWindow: () => BrowserWindow): Promise<void> {
   mkdirSync(dir, { recursive: true })
-  const ui = (js: string) => win.webContents.executeJavaScript(js)
-  const click = (label: string) =>
-    ui(`[...document.querySelectorAll('button')].find((b) => /^(${label})$/.test(b.textContent.trim()))?.click()`)
+  const ui = (js: string, w = win) => w.webContents.executeJavaScript(js)
+  const click = (label: string, w = win) =>
+    ui(`[...document.querySelectorAll('button')].find((b) => /^(${label})$/.test(b.textContent.trim()))?.click()`, w)
   const size = (value: string) =>
     ui(`(() => { const s = document.querySelector('select'); s.value = '${value}'; s.dispatchEvent(new Event('change', { bubbles: true })) })()`)
-  const go = (url: string) =>
+  const go = (url: string, w = win) =>
     ui(`(() => {
       const input = document.querySelector('.address input')
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(url)})
       input.dispatchEvent(new Event('input', { bubbles: true }))
       input.form.requestSubmit()
-    })()`)
+    })()`, w)
   const shot = async (name: string) => {
     const file = join(dir, `${name}.png`)
     try {
@@ -107,5 +107,22 @@ export async function visualCheck(win: BrowserWindow, dir: string): Promise<void
     console.log(`VISUAL firefox apps: ${nightly.length}`)
     for (const a of nightly) console.log(`VISUAL ${a.match(/"[^"]*"/)?.[0]} ${a.match(/type="[^"]*"/)?.[0] ?? a.match(/Foreground|UIElement|BackgroundOnly/)?.[0] ?? ''}`)
   }
+  // Two windows, both on Firefox with different pages: each gets its own parked, mirrored window.
+  win.setBounds({ x: 0, y: 30, width: 510, height: 700 })
+  const second = newWindow()
+  await new Promise<void>((r) => second.webContents.once('did-finish-load', () => r()))
+  second.setBounds({ x: 514, y: 30, width: 510, height: 700 })
+  await sleep(2000)
+  await go('https://en.wikipedia.org/wiki/Lando_Norris', second)
+  await sleep(1000)
+  await click('Firefox', second)
+  await sleep(8000)
+  await shot('two-windows-firefox')
+  await click('WebKit', second)
+  await sleep(3000)
+  await shot('two-windows-mixed')
+  second.close()
+  await sleep(2000)
+  await shot('second-window-closed')
   app.exit(0)
 }

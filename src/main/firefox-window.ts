@@ -98,10 +98,21 @@ export function requestScreenRecording(): void {
   mirror?.requestScreenCaptureAccess()
 }
 
-/** Just past the right edge of every display (screen points): nobody sees a window there. */
-export function parkingSpot(): { x: number; y: number } {
+/**
+ * Past the right edge of every display (screen points): nobody sees a window there. Each window
+ * gets its own slot, side by side, so the mirror can tell them apart by x.
+ */
+export function parkingSpot(slot = 0): { x: number; y: number } {
   const displays = screen.getAllDisplays().map((d) => d.bounds)
-  return { x: Math.max(...displays.map((b) => b.x + b.width)) + 100, y: Math.min(...displays.map((b) => b.y)) }
+  return { x: Math.max(...displays.map((b) => b.x + b.width)) + 100 + slot * 8000, y: Math.min(...displays.map((b) => b.y)) }
+}
+
+const slotsInUse = new Set<number>()
+function takeSlot(): number {
+  let slot = 0
+  while (slotsInUse.has(slot)) slot++
+  slotsInUse.add(slot)
+  return slot
 }
 
 /** Launch options for the windowed Firefox context. `at` is where its window first opens. */
@@ -129,6 +140,7 @@ function firefoxPid(context: BrowserContext): number | undefined {
 }
 
 export class FirefoxWindow {
+  private slot: number
   private win: BrowserWindow
   private page: Page
   private context: BrowserContext
@@ -150,6 +162,7 @@ export class FirefoxWindow {
     this.context = context
     this.page = page
     this.viewport = viewport
+    this.slot = takeSlot()
     const on = (event: string, fn: () => void) => {
       this.win.on(event as 'move', fn)
       this.listeners.push([event, fn])
@@ -205,7 +218,7 @@ export class FirefoxWindow {
 
   private async placeNow(): Promise<void> {
     const session = jugglerSession(this.page)
-    const { x, y } = parkingSpot()
+    const { x, y } = parkingSpot(this.slot)
     const at = await session?.send('Page.moveWindow', { x, y }).catch((err: unknown) => String(err))
     const moved = at && typeof at === 'object' && 'x' in at ? (at as { x: number; y: number; scale: number }) : undefined
     // The page renders at Swivel's display density; the window holds that many pixels at its own
@@ -319,6 +332,7 @@ export class FirefoxWindow {
   }
 
   destroy(): void {
+    slotsInUse.delete(this.slot)
     clearInterval(this.watchdog)
     clearInterval(this.statsTimer)
     for (const [event, fn] of this.listeners) this.win.removeListener(event as 'move', fn)

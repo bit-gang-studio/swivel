@@ -16,10 +16,13 @@ process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = 'true'
 const here = fileURLToPath(new URL('.', import.meta.url))
 const sessions = new Map<number, EngineHost>()
 
-function createWindow(): void {
+function createWindow(): BrowserWindow {
+  // New windows cascade from the focused one, like other browsers.
+  const from = BrowserWindow.getFocusedWindow()?.getBounds()
   const win = new BrowserWindow({
-    width: 1400,
-    height: 900,
+    width: from?.width ?? 1400,
+    height: from?.height ?? 900,
+    ...(from ? { x: from.x + 30, y: from.y + 30 } : {}),
     minWidth: 900,
     minHeight: 600,
     title: 'Swivel',
@@ -42,10 +45,10 @@ function createWindow(): void {
   })
   sessions.set(id, host)
   // Test runs reach the host from Playwright's main-process evaluate.
-  if (process.env.SWIVEL_HIDDEN) (globalThis as { swivelHost?: EngineHost }).swivelHost = host
-  if (process.env.SWIVEL_SELFTEST) win.webContents.once('did-finish-load', () => void selfTest(win, host))
+  if (process.env.SWIVEL_HIDDEN && sessions.size === 1) (globalThis as { swivelHost?: EngineHost }).swivelHost = host
+  if (process.env.SWIVEL_SELFTEST && sessions.size === 1) win.webContents.once('did-finish-load', () => void selfTest(win, host))
   const visualDir = process.env.SWIVEL_VISUAL
-  if (visualDir) win.webContents.once('did-finish-load', () => void visualCheck(win, visualDir))
+  if (visualDir && sessions.size === 1) win.webContents.once('did-finish-load', () => void visualCheck(win, visualDir, createWindow))
   win.on('close', () => {
     sessions.get(id)?.destroy()
     sessions.delete(id)
@@ -61,6 +64,7 @@ function createWindow(): void {
   } else {
     void win.loadFile(join(here, '../renderer/index.html'))
   }
+  return win
 }
 
 ipcMain.handle('swivel:start', (e, opts: LiveOptions) => sessions.get(e.sender.id)?.start(opts))
@@ -74,7 +78,7 @@ ipcMain.on('swivel:input', (e, input: InputEvent) => sessions.get(e.sender.id)?.
 
 app.whenReady().then(() => {
   console.log(`Swivel: Firefox mode ${windowedFirefoxStatus()}`)
-  installMenu()
+  installMenu(createWindow)
   createWindow()
   prewarmBrowsers(streamedEngines())
   app.on('activate', () => {

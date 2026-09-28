@@ -9,6 +9,8 @@ import { findInPage, type FindRequest } from '../shared/find'
 
 const types: Record<EngineId, BrowserType> = { chromium, firefox, webkit }
 const contexts = new Map<EngineId, Promise<BrowserContext>>()
+/** Pages a browser opened on its own at launch (real-window Firefox closes them). */
+const launchPages = new WeakSet<Page>()
 
 /**
  * One persistent context per engine, so logins and site data survive restarts. Each engine has
@@ -20,7 +22,12 @@ function getContext(engine: EngineId, win?: BrowserWindow): Promise<BrowserConte
   if (!context && engine === 'firefox' && win && windowedFirefoxStatus() === 'on') {
     const profile = join(app.getPath('userData'), 'profiles', engine)
     refreshPatchedCode(profile)
-    context = firefox.launchPersistentContext(profile, windowedLaunchOptions({ width: 1280, height: 800 }, parkingSpot(), screen.getDisplayMatching(win.getBounds()).scaleFactor))
+    context = firefox
+      .launchPersistentContext(profile, windowedLaunchOptions({ width: 1280, height: 800 }, parkingSpot(), screen.getDisplayMatching(win.getBounds()).scaleFactor))
+      .then((c) => {
+        for (const page of c.pages()) launchPages.add(page)
+        return c
+      })
     context.catch(() => contexts.delete(engine))
     contexts.set(engine, context)
   }
@@ -109,6 +116,8 @@ export class StreamedView implements PageView {
   /** A real window whose mirror failed: kept hidden behind Swivel while the page is streamed. */
   private hiddenWindow?: FirefoxWindow
   private rect?: ViewRect
+  private context?: BrowserContext
+  private onPopup?: (popup: Page) => void
 
   constructor(engine: EngineId, emit: Emit, win?: BrowserWindow) {
     this.engine = engine
@@ -154,17 +163,21 @@ export class StreamedView implements PageView {
     this.page = page
     if (this.engine === 'firefox' && this.win && windowedFirefoxStatus() === 'on' && this.opts) {
       // Real-window mode: close the window Firefox opens at launch, mirror this page's window, and
-      // load links that open new windows here instead (a stray window would show on screen).
-      for (const other of context.pages()) if (other !== page) await other.close().catch(() => {})
-      context.on('page', (popup) => {
-        debug(this.engine, 'popup', popup === this.page ? '(our page)' : popup.url())
-        if (popup === this.page) return
-        void popup.waitForURL(/.*/, { timeout: 5000 }).catch(() => {}).then(() => {
+      // load links this page opens in new windows here instead (a stray window would show on
+      // screen). Other Swivel windows' pages are left alone.
+      for (const other of context.pages()) if (launchPages.has(other)) await other.close().catch(() => {})
+      this.onPopup = (popup: Page) => {
+        void popup.opener().then(async (opener) => {
+          if (!opener || opener !== this.page) return
+          debug(this.engine, 'popup', popup.url())
+          await popup.waitForURL(/.*/, { timeout: 5000 }).catch(() => {})
           const url = popup.url()
           void popup.close().catch(() => {})
           if (url && url !== 'about:blank') void this.navigate(url)
         })
-      })
+      }
+      context.on('page', this.onPopup)
+      this.context = context
       await within(page.setViewportSize(this.opts.viewport), 3000, undefined)
       const window = new FirefoxWindow(this.win, context, page, this.opts.viewport)
       if (this.rect) window.setRect(this.rect)
@@ -390,6 +403,7 @@ export class StreamedView implements PageView {
     this.window = undefined
     this.hiddenWindow?.destroy()
     this.hiddenWindow = undefined
+    if (this.onPopup) this.context?.off('page', this.onPopup)
     const page = this.page
     this.page = undefined
     void page?.close().catch(() => {})
