@@ -13,7 +13,8 @@ const page = 'data:text/html,' + encodeURIComponent("<script>console.log('ua:' +
 await withApp(async ({ win }) => {
   await win.getByLabel('Address').fill(page)
   await win.getByLabel('Address').press('Enter')
-  await win.getByRole('button', { name: /^Console/ }).click()
+  const toggle = win.getByRole('button', { name: /^Console/ })
+  if ((await toggle.getAttribute('aria-pressed')) !== 'true') await toggle.click() // Its state is remembered.
   const seen = {}
   const end = Date.now() + 30_000
   while (Date.now() < end && Object.keys(seen).length < 3) {
