@@ -128,6 +128,10 @@ static Napi::Value Create(const Napi::CallbackInfo& info) {
                                                                    forMainFrameOnly:NO]];
   // Resolve scaling and fonts the same way Safari does.
   config.preferences.javaScriptCanOpenWindowsAutomatically = YES;
+  // Identify as the installed Safari, like Safari does. Without "Version/x Safari/605.1.15" sites
+  // (Google, for one) don't recognise the browser and serve old fallback pages.
+  NSString* safari = [[NSBundle bundleWithPath:@"/Applications/Safari.app"] objectForInfoDictionaryKey:@"CFBundleShortVersionString"];
+  config.applicationNameForUserAgent = [NSString stringWithFormat:@"Version/%@ Safari/605.1.15", safari ?: @"18.0"];
 
   v.container = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 100, 100)];
   v.container.wantsLayer = YES;
