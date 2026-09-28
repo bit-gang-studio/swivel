@@ -107,6 +107,15 @@ export async function visualCheck(win: BrowserWindow, dir: string, newWindow: ()
     console.log(`VISUAL firefox apps: ${nightly.length}`)
     for (const a of nightly) console.log(`VISUAL ${a.match(/"[^"]*"/)?.[0]} ${a.match(/type="[^"]*"/)?.[0] ?? a.match(/Foreground|UIElement|BackgroundOnly/)?.[0] ?? ''}`)
   }
+  // Google serves old fallback pages to browsers it doesn't recognise: each engine must get the
+  // same page its real browser does.
+  win.setBounds({ x: 0, y: 0, width: 1400, height: 900 })
+  await go('https://www.google.com/')
+  for (const [engine, label] of [['chromium', 'Chromium'], ['firefox', 'Firefox'], ['webkit', 'WebKit']]) {
+    await click(label)
+    await sleep(5000)
+    await shot(`google-${engine}`)
+  }
   // Two windows, both on Firefox with different pages: each gets its own parked, mirrored window.
   win.setBounds({ x: 0, y: 30, width: 510, height: 700 })
   const second = newWindow()

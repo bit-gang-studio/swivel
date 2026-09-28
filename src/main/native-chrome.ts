@@ -44,6 +44,9 @@ export class NativeChrome implements PageView {
       }
     })
     const wc = view.webContents
+    // Identify as plain Chrome: Electron adds "Electron/x" and the app's name, and sites that check
+    // the user agent would treat the page differently from real Chrome.
+    wc.setUserAgent(wc.getUserAgent().replace(/\s(?:Electron|swivel)\/\S+/gi, ''))
     wc.on('console-message', (e) => this.emit('console', { engine: 'chromium', type: LEVELS[e.level] ?? 'log', text: e.message.replace(/%c/g, '') }))
     wc.on('did-start-loading', () => this.emit('loading', true))
     wc.on('did-stop-loading', () => this.emit('loading', false))
