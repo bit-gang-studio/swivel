@@ -1,11 +1,14 @@
 import type { FindRequest } from '../shared/find'
-import type { EngineId, InputEvent, LiveEvents, LiveOptions, ViewRect } from '../shared/types'
+import type { EngineId, InputEvent, LiveEvents, LiveOptions, ViewEvents, ViewRect } from '../shared/types'
 
-export type Emit = <K extends keyof LiveEvents>(event: K, payload: LiveEvents[K]) => void
+/** How a view reports. */
+export type Emit = <K extends keyof ViewEvents>(event: K, payload: ViewEvents[K]) => void
+/** How a window's host reports to its UI. */
+export type EmitLive = <K extends keyof LiveEvents>(event: K, payload: LiveEvents[K]) => void
 
 /**
- * One live page in one engine. A window can hold several: today one per engine, with one shown;
- * later a canvas of engines and sizes side by side.
+ * One live page in one engine. A window holds several: one per engine in the single-page view
+ * (one shown), and one per frame on the canvas (all shown).
  */
 export interface PageView {
   readonly engine: EngineId
@@ -15,7 +18,7 @@ export interface PageView {
   hide(): void
   navigate(url: string): Promise<void>
   history(action: 'back' | 'forward' | 'reload'): Promise<void>
-  /** Where the page area is in the window. Native views place themselves there. */
+  /** Where the page area is in the window, and the area it may draw in. Native views place themselves there. */
   setRect(rect: ViewRect): Promise<void>
   find(req: FindRequest): Promise<void>
   /** Mouse and keyboard input, for views that don't receive it natively. */

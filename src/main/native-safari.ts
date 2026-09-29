@@ -11,6 +11,8 @@ interface Addon {
   /** Drop a window's data store (once its views are gone). */
   releaseStore?(store: string): void
   setFrame(id: number, x: number, y: number, w: number, h: number, vw: number, vh: number): void
+  /** Show the view only inside a rect (window points), or everywhere with no rect. */
+  setClip(id: number, x?: number, y?: number, w?: number, h?: number): void
   load(id: number, url: string): void
   history(id: number, action: string): void
   setHidden(id: number, hidden: boolean): void
@@ -110,6 +112,9 @@ export class NativeSafari implements PageView {
     if (this.id === undefined || !this.opts || !this.rect) return
     const { x, y, width, height } = this.rect
     this.addon.setFrame(this.id, x, y, width, height, this.opts.viewport.width, this.opts.viewport.height)
+    const c = this.rect.clip
+    if (c) this.addon.setClip(this.id, c.x, c.y, c.width, c.height)
+    else this.addon.setClip(this.id)
     this.addon.setHidden(this.id, !this.active)
   }
 

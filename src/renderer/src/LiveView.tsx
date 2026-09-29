@@ -1,13 +1,24 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
-import type { EngineId, Viewport } from '../../shared/types'
+import type { EngineId, InputEvent, Viewport } from '../../shared/types'
 
 const BUTTONS = ['left', 'middle', 'right'] as const
 
+interface Props {
+  viewport: Viewport
+  label: string
+  engine: EngineId
+  /** Which view's frames to draw: the engine in the single-page view, canvas:<id> on the canvas. */
+  viewKey: string
+  send: (e: InputEvent) => void
+  /** Report where the page sits (the single-page view; canvas frames report their own). */
+  reportRect?: boolean
+}
+
 /** Draws streamed frames and sends mouse, wheel and key input back to the engine. */
-export function LiveView({ viewport, label, engine }: { viewport: Viewport; label: string; engine: EngineId }) {
+export function LiveView({ viewport, label, engine, viewKey, send, reportRect = true }: Props) {
   const canvas = useRef<HTMLCanvasElement>(null)
   const [cursor, setCursor] = useState('default')
-  useEffect(() => window.swivel.on('cursor', setCursor), [])
+  useEffect(() => window.swivel.on('cursor', (c) => c.view === viewKey && setCursor(c.cursor)), [viewKey])
 
   // Display size in exact CSS pixels. At scale 1 each frame pixel lands on a screen pixel;
   // letting CSS shrink the canvas to fit resampled it very slightly and softened text.
@@ -30,7 +41,7 @@ export function LiveView({ viewport, label, engine }: { viewport: Viewport; labe
   // Firefox on macOS). Streamed frames don't need it.
   useLayoutEffect(() => {
     const c = canvas.current
-    if (!c || !box.width) return
+    if (!c || !box.width || !reportRect) return
     const r = c.getBoundingClientRect()
     void window.swivel.setRect({ x: r.left, y: r.top, width: r.width, height: r.height })
   }, [box.width, box.height, engine])
@@ -59,10 +70,11 @@ export function LiveView({ viewport, label, engine }: { viewport: Viewport; labe
       }
     }
     return window.swivel.on('frame', (frame) => {
+      if (frame.view !== viewKey) return
       next = new Blob([frame.data as Uint8Array<ArrayBuffer>], { type: `image/${frame.format}` })
       void draw()
     })
-  }, [])
+  }, [viewKey])
 
   // Map a mouse position on the scaled canvas to page CSS pixels.
   function point(e: MouseEvent<HTMLCanvasElement> | React.WheelEvent<HTMLCanvasElement>) {
@@ -81,7 +93,7 @@ export function LiveView({ viewport, label, engine }: { viewport: Viewport; labe
     pendingMove.current = point(e)
     if (first) {
       requestAnimationFrame(() => {
-        if (pendingMove.current) window.swivel.input({ kind: 'move', ...pendingMove.current })
+        if (pendingMove.current) send({ kind: 'move', ...pendingMove.current })
         pendingMove.current = null
       })
     }
@@ -90,7 +102,7 @@ export function LiveView({ viewport, label, engine }: { viewport: Viewport; labe
   function onKey(e: KeyboardEvent<HTMLCanvasElement>, kind: 'keydown' | 'keyup') {
     if (e.metaKey) return // Leave app shortcuts alone.
     e.preventDefault()
-    window.swivel.input({ kind, key: e.key === ' ' ? 'Space' : e.key })
+    send({ kind, key: e.key === ' ' ? 'Space' : e.key })
   }
 
   return (
@@ -106,10 +118,10 @@ export function LiveView({ viewport, label, engine }: { viewport: Viewport; labe
       onMouseMove={onMove}
       onMouseDown={(e) => {
         e.currentTarget.focus()
-        window.swivel.input({ kind: 'down', ...point(e), button: BUTTONS[e.button] ?? 'left' })
+        send({ kind: 'down', ...point(e), button: BUTTONS[e.button] ?? 'left' })
       }}
-      onMouseUp={(e) => window.swivel.input({ kind: 'up', ...point(e), button: BUTTONS[e.button] ?? 'left' })}
-      onWheel={(e) => window.swivel.input({ kind: 'wheel', ...point(e), dx: e.deltaX, dy: e.deltaY })}
+      onMouseUp={(e) => send({ kind: 'up', ...point(e), button: BUTTONS[e.button] ?? 'left' })}
+      onWheel={(e) => send({ kind: 'wheel', ...point(e), dx: e.deltaX, dy: e.deltaY })}
       onKeyDown={(e) => onKey(e, 'keydown')}
       onKeyUp={(e) => onKey(e, 'keyup')}
       onContextMenu={(e) => e.preventDefault()}

@@ -84,3 +84,21 @@ button, input, select { font: inherit; color: inherit; }
 .findbar .find-count { min-width: 48px; color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; margin-right: 4px; }
 .findbar button { height: 28px; width: 28px; padding: 0; border: none; border-radius: 14px; background: transparent; display: grid; place-items: center; cursor: pointer; }
 .findbar button:hover { background: var(--hover); }
+
+/* Canvas: frames side by side. Native pages draw over the page area of each frame. */
+.viewport.with-canvas { padding: 0; display: block; }
+.canvas { position: absolute; inset: 0; overflow: hidden; background: var(--bg); background-image: radial-gradient(var(--line) 1px, transparent 1px); background-size: 24px 24px; cursor: grab; touch-action: none; }
+.canvas:active { cursor: grabbing; }
+.frame { position: absolute; }
+.frame header { height: 30px; display: flex; align-items: center; gap: 4px; padding: 0 2px; cursor: move; font-size: 12px; }
+.frame header select { height: 22px; border: none; border-radius: 11px; padding: 0 6px; font-size: 12px; background: var(--surface); cursor: pointer; }
+.frame header button { margin-left: auto; width: 22px; height: 22px; border: none; border-radius: 11px; background: transparent; cursor: pointer; font-size: 15px; line-height: 1; color: var(--muted); }
+.frame header button:hover, .frame header select:hover { background: var(--hover); }
+.frame-body { position: relative; overflow: hidden; background: #fff; box-shadow: 0 0 0 1px var(--line); }
+.frame-body .live-area, .frame-body .live { width: 100%; height: 100%; border: none; border-radius: 0; }
+.frame-snapshot { position: absolute; inset: 0; width: 100%; height: 100%; }
+.frame-handle { position: absolute; width: 14px; height: 14px; margin: -4px 0 0 -4px; cursor: nwse-resize; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); }
+.frame-resize-outline { position: absolute; left: 0; border: 1px dashed var(--accent); pointer-events: none; }
+.canvas-tools { position: absolute; left: 12px; bottom: 12px; display: flex; gap: 6px; align-items: center; font-size: 12px; cursor: default; }
+.canvas-tools select, .canvas-tools button { height: 28px; border: 1px solid var(--line); border-radius: 14px; padding: 0 10px; background: var(--surface); font-size: 12px; cursor: pointer; }
+.canvas-tools .zoom { color: var(--muted); padding: 0 6px; }

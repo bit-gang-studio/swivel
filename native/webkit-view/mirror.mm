@@ -8,6 +8,7 @@
 #import <CoreMedia/CoreMedia.h>
 #import <CoreVideo/CoreVideo.h>
 #import <ScreenCaptureKit/ScreenCaptureKit.h>
+#include "clip.h"
 #include <napi.h>
 #include <map>
 
@@ -21,6 +22,8 @@
 API_AVAILABLE(macos(12.3))
 @interface SwivelMirror : NSObject <SCStreamOutput, SCStreamDelegate>
 @property(nonatomic, strong) SwivelMirrorView* view;
+@property(nonatomic, strong) NSView* clip;
+@property(nonatomic, weak) NSView* content;
 @property(nonatomic, strong) SCStream* stream;
 @property(nonatomic, strong) SCStreamConfiguration* config;
 @property(nonatomic, assign) CMSampleBufferRef held;  // Keeps the shown surface from being reused.
@@ -88,7 +91,8 @@ static Napi::Value MirrorCreate(const Napi::CallbackInfo& info) {
     view.layer.contentsGravity = kCAGravityResize;
     view.layer.masksToBounds = YES;
     view.hidden = YES;
-    [parent addSubview:view positioned:NSWindowAbove relativeTo:nil];
+    NSView* clip = SwivelMakeClip(parent);
+    [clip addSubview:view];
 
     [SCShareableContent getShareableContentExcludingDesktopWindows:NO onScreenWindowsOnly:NO completionHandler:^(SCShareableContent* content, NSError* error) {
       // The window of that process at the x Swivel parked it (each window gets its own x),
@@ -104,6 +108,7 @@ static Napi::Value MirrorCreate(const Napi::CallbackInfo& info) {
       }
       if (!best) {
         std::string msg = error ? error.localizedDescription.UTF8String : "Firefox window not found";
+        dispatch_async(dispatch_get_main_queue(), ^{ [clip removeFromSuperview]; });
         done.BlockingCall([msg](Napi::Env env, Napi::Function cb) { cb.Call({Napi::String::New(env, msg), env.Null()}); });
         done.Release();
         return;
@@ -118,6 +123,8 @@ static Napi::Value MirrorCreate(const Napi::CallbackInfo& info) {
       config.pixelFormat = kCVPixelFormatType_32BGRA;
       SwivelMirror* mirror = [SwivelMirror new];
       mirror.view = view;
+      mirror.clip = clip;
+      mirror.content = parent;
       mirror.config = config;
       mirror.stream = [[SCStream alloc] initWithFilter:filter configuration:config delegate:mirror];
       NSError* addError = nil;
@@ -126,7 +133,7 @@ static Napi::Value MirrorCreate(const Napi::CallbackInfo& info) {
         std::string msg = startError ? startError.localizedDescription.UTF8String : (addError ? addError.localizedDescription.UTF8String : "");
         dispatch_async(dispatch_get_main_queue(), ^{
           if (msg.empty()) mirrors[id] = mirror;
-          else [view removeFromSuperview];
+          else [clip removeFromSuperview];
         });
         done.BlockingCall([msg, id](Napi::Env env, Napi::Function cb) {
           if (msg.empty()) cb.Call({env.Null(), Napi::Number::New(env, id)});
@@ -154,9 +161,20 @@ static Napi::Value MirrorSetFrame(const Napi::CallbackInfo& info) {
     if (!m) return info.Env().Undefined();
     double x = info[1].As<Napi::Number>().DoubleValue(), y = info[2].As<Napi::Number>().DoubleValue();
     double w = info[3].As<Napi::Number>().DoubleValue(), h = info[4].As<Napi::Number>().DoubleValue();
-    NSView* parent = m.view.superview;
-    double top = parent.isFlipped ? y : parent.bounds.size.height - y - h;
-    m.view.frame = NSMakeRect(x, top, w, h);
+    m.view.frame = NSMakeRect(x, y, w, h);  // In the clip view: content top-left coordinates.
+  }
+  return info.Env().Undefined();
+}
+
+// mirrorSetClip(id, x, y, width, height): show the mirror only inside that rect (window points,
+// top-left). mirrorSetClip(id) with no rect: no clipping.
+static Napi::Value MirrorSetClip(const Napi::CallbackInfo& info) {
+  if (@available(macOS 12.3, *)) {
+    SwivelMirror* m = GetMirror(info);
+    if (!m) return info.Env().Undefined();
+    if (info.Length() < 5) SwivelClipReset(m.clip, m.content);
+    else SwivelClipTo(m.clip, m.content, info[1].As<Napi::Number>().DoubleValue(), info[2].As<Napi::Number>().DoubleValue(),
+                      info[3].As<Napi::Number>().DoubleValue(), info[4].As<Napi::Number>().DoubleValue());
   }
   return info.Env().Undefined();
 }
@@ -197,7 +215,7 @@ static Napi::Value MirrorDestroy(const Napi::CallbackInfo& info) {
     SwivelMirror* m = GetMirror(info);
     if (!m) return info.Env().Undefined();
     [m.stream stopCaptureWithCompletionHandler:nil];
-    [m.view removeFromSuperview];
+    [m.clip removeFromSuperview];
     mirrors.erase(id);
   }
   return info.Env().Undefined();
@@ -241,6 +259,7 @@ void InitMirror(Napi::Env env, Napi::Object exports) {
   exports.Set("requestScreenCaptureAccess", Napi::Function::New(env, RequestScreenCaptureAccess));
   exports.Set("mirrorCreate", Napi::Function::New(env, MirrorCreate));
   exports.Set("mirrorSetFrame", Napi::Function::New(env, MirrorSetFrame));
+  exports.Set("mirrorSetClip", Napi::Function::New(env, MirrorSetClip));
   exports.Set("mirrorResizeSource", Napi::Function::New(env, MirrorResizeSource));
   exports.Set("mirrorSetHidden", Napi::Function::New(env, MirrorSetHidden));
   exports.Set("mirrorFrames", Napi::Function::New(env, MirrorFrames));

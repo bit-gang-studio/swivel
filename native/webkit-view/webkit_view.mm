@@ -9,6 +9,7 @@
 #import <AppKit/AppKit.h>
 #import <WebKit/WebKit.h>
 #include <napi.h>
+#include "clip.h"
 #include <map>
 #include <string>
 
@@ -37,6 +38,8 @@ static NSString* const kConsoleHook = @"(() => {"
 
 @interface SwivelWebView : NSObject <WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler>
 @property(nonatomic, strong) NSView* container;
+@property(nonatomic, strong) NSView* clip;
+@property(nonatomic, weak) NSView* content;
 @property(nonatomic, strong) WKWebView* web;
 @property(nonatomic, assign) EventFn* events;
 @end
@@ -143,7 +146,9 @@ static Napi::Value Create(const Napi::CallbackInfo& info) {
   if (@available(macOS 13.3, *)) v.web.inspectable = YES;  // Safari's Web Inspector can attach.
   [v.web addObserver:v forKeyPath:@"URL" options:NSKeyValueObservingOptionNew context:nil];
   [v.container addSubview:v.web];
-  [parent addSubview:v.container positioned:NSWindowAbove relativeTo:nil];
+  v.content = parent;
+  v.clip = SwivelMakeClip(parent);
+  [v.clip addSubview:v.container];
   views[id] = v;
   return Napi::Number::New(env, id);
 }
@@ -155,13 +160,22 @@ static Napi::Value SetFrame(const Napi::CallbackInfo& info) {
   double x = info[1].As<Napi::Number>().DoubleValue(), y = info[2].As<Napi::Number>().DoubleValue();
   double w = info[3].As<Napi::Number>().DoubleValue(), h = info[4].As<Napi::Number>().DoubleValue();
   double vw = info[5].As<Napi::Number>().DoubleValue(), vh = info[6].As<Napi::Number>().DoubleValue();
-  NSView* parent = v.container.superview;
-  double top = parent.isFlipped ? y : parent.bounds.size.height - y - h;
-  v.container.frame = NSMakeRect(x, top, w, h);
+  v.container.frame = NSMakeRect(x, y, w, h);  // In the clip view: content top-left coordinates.
   // Container bounds at the viewport size make AppKit scale the full-size web view down to the
   // container's frame, so the page lays out at exactly the viewport width.
   v.container.bounds = NSMakeRect(0, 0, vw, vh);
   v.web.frame = NSMakeRect(0, 0, vw, vh);
+  return info.Env().Undefined();
+}
+
+// setClip(id, x, y, width, height): show the view only inside that rect (window points, top-left).
+// setClip(id) with no rect: no clipping.
+static Napi::Value SetClip(const Napi::CallbackInfo& info) {
+  SwivelWebView* v = Get(info);
+  if (!v) return info.Env().Undefined();
+  if (info.Length() < 5) SwivelClipReset(v.clip, v.content);
+  else SwivelClipTo(v.clip, v.content, info[1].As<Napi::Number>().DoubleValue(), info[2].As<Napi::Number>().DoubleValue(),
+                    info[3].As<Napi::Number>().DoubleValue(), info[4].As<Napi::Number>().DoubleValue());
   return info.Env().Undefined();
 }
 
@@ -226,7 +240,7 @@ static Napi::Value Destroy(const Napi::CallbackInfo& info) {
   [v.web removeObserver:v forKeyPath:@"URL"];
   [v.web.configuration.userContentController removeScriptMessageHandlerForName:@"swivel"];
   [v.web stopLoading];
-  [v.container removeFromSuperview];
+  [v.clip removeFromSuperview];
   v.events = nullptr;
   views.erase(id);
   eventFns[id].Release();
@@ -240,6 +254,7 @@ static Napi::Object Init(Napi::Env env, Napi::Object exports) {
   InitMirror(env, exports);
   exports.Set("create", Napi::Function::New(env, Create));
   exports.Set("setFrame", Napi::Function::New(env, SetFrame));
+  exports.Set("setClip", Napi::Function::New(env, SetClip));
   exports.Set("load", Napi::Function::New(env, Load));
   exports.Set("history", Napi::Function::New(env, History));
   exports.Set("setHidden", Napi::Function::New(env, SetHidden));

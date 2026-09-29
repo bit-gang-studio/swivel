@@ -1,13 +1,11 @@
-import type { BrowserWindow } from 'electron'
+import { randomUUID } from 'node:crypto'
+import { session, type BrowserWindow } from 'electron'
 import type { FindRequest } from '../shared/find'
-import type { EngineId, InputEvent, LiveEvents, LiveOptions, ViewRect, Viewport } from '../shared/types'
-import { StreamedView } from './live'
+import type { CanvasFrame, EngineId, InputEvent, LiveOptions, ViewEvents, ViewRect, Viewport } from '../shared/types'
+import { StreamedView, releaseContexts } from './live'
 import { NativeChrome } from './native-chrome'
 import { NativeSafari, webkitAddon } from './native-safari'
-import type { Emit, PageView } from './view'
-import { randomUUID } from 'node:crypto'
-import { session } from 'electron'
-import { releaseContexts } from './live'
+import type { Emit, EmitLive, PageView } from './view'
 
 const ENGINES: EngineId[] = ['chromium', 'firefox', 'webkit']
 
@@ -22,29 +20,27 @@ export function streamedEngines(): EngineId[] {
 }
 
 const sameUrl = (a?: string, b?: string) => !!a && !!b && a.replace(/\/$/, '') === b.replace(/\/$/, '')
+const canvasKey = (id: string) => `canvas:${id}`
 
 /**
- * One window's pages: one live view per engine, all kept loaded and on the same URL, with one
- * shown. The shown view leads: when you navigate inside it, the others follow in the background,
- * so switching engines is instant. Console output comes from every view; everything else the UI
- * sees comes from the shown one.
+ * One window's pages, all on the same URL and the window's own data.
+ * - Single-page view: one live view per engine (keyed by engine), one shown. The others stay
+ *   loaded, so switching engines is instant.
+ * - Canvas: one live view per frame (keyed canvas:<id>), all shown at their own engine and size.
+ * The shown views lead: when one navigates on its own, every other view follows. Console output
+ * comes from every view.
  */
 export class EngineHost {
-  private views = new Map<EngineId, PageView>()
+  private views = new Map<string, PageView>()
+  private canvas?: Map<string, CanvasFrame>
   private active?: EngineId
   private settings?: Omit<LiveOptions, 'engine'>
   /** Each view's latest URL, to avoid sending followers where they already are. */
-  private urls = new Map<EngineId, string>()
-  /** Set while views run a navigation Swivel started; the leader's URL changes then aren't user moves. */
+  private urls = new Map<string, string>()
+  /** Set while views run a navigation Swivel started; URL changes then aren't user moves. */
   private broadcasting = false
   private win: BrowserWindow
-  private emit: Emit
-
-  /** Test hook: sees console text from any engine. */
-  onConsole?: (engine: EngineId, text: string) => void
-  /** How many times start() has run. The self-test waits for the UI's first start. */
-  starts = 0
-
+  private emit: EmitLive
   /**
    * This window's data (cookies, storage, cache) in every engine, shared with no other window and
    * kept in memory only: it's gone when the window closes.
@@ -52,38 +48,58 @@ export class EngineHost {
   private storageId = randomUUID()
   private rect?: ViewRect
 
-  constructor(win: BrowserWindow, emit: Emit) {
+  /** Test hook: sees console text from any engine. */
+  onConsole?: (engine: EngineId, text: string) => void
+  /** How many times start() has run. The self-test waits for the UI's first start. */
+  starts = 0
+
+  constructor(win: BrowserWindow, emit: EmitLive) {
     this.win = win
     this.emit = emit
   }
 
   /** Wipe this window's data: every view is rebuilt on fresh storage, on the same page. */
   clearData(): Promise<void> {
-    const url = this.active ? this.urls.get(this.active) : undefined
+    const url = this.currentUrl()
+    const frames = this.canvas ? [...this.canvas.values()] : undefined
     this.destroy()
     this.urls.clear()
     this.storageId = randomUUID()
     const { settings, active } = this
-    this.clearing = settings && active ? this.start({ ...settings, ...(url ? { url } : {}), engine: active }) : Promise.resolve()
+    if (settings && url) this.settings = { ...settings, url }
+    this.clearing = frames ? this.setCanvas(frames) : settings && active ? this.start({ ...this.settings!, engine: active }) : Promise.resolve()
     return this.clearing
   }
 
   /** A clear in progress: navigation waits for it, so the old page can't win. */
   private clearing: Promise<void> = Promise.resolve()
 
+  private currentUrl(): string | undefined {
+    for (const key of this.shownKeys()) if (this.urls.get(key)) return this.urls.get(key)
+    return this.settings?.url
+  }
+
+  /** Keys of the views on screen: every canvas frame, or the active engine. */
+  private shownKeys(): string[] {
+    if (this.canvas) return [...this.canvas.keys()].map(canvasKey)
+    return this.active ? [this.active] : []
+  }
+
+  private makeView(key: string, engine: EngineId): PageView {
+    const emit: Emit = (event, payload) => this.fromView(key, engine, event, payload)
+    const view =
+      engine === 'chromium'
+        ? new NativeChrome(this.win, emit, `swivel-${this.storageId}`)
+        : engine === 'webkit' && webkitAddon
+          ? new NativeSafari(this.win, emit, webkitAddon, this.storageId)
+          : new StreamedView(engine, emit, this.storageId, this.win)
+    this.views.set(key, view)
+    return view
+  }
+
   private view(engine: EngineId): PageView {
-    let view = this.views.get(engine)
-    if (!view) {
-      const emit: Emit = (event, payload) => this.fromView(engine, event, payload)
-      view =
-        engine === 'chromium'
-          ? new NativeChrome(this.win, emit, `swivel-${this.storageId}`)
-          : engine === 'webkit' && webkitAddon
-            ? new NativeSafari(this.win, emit, webkitAddon, this.storageId)
-            : new StreamedView(engine, emit, this.storageId, this.win)
-      this.views.set(engine, view)
-      if (this.rect) void view.setRect(this.rect)
-    }
+    const view = this.views.get(engine) ?? this.makeView(engine, engine)
+    if (this.rect && !this.canvas) void view.setRect(this.rect)
     return view
   }
 
@@ -92,52 +108,60 @@ export class EngineHost {
     return this.views.get(engine)
   }
 
-  /** Resolvers waiting for an engine's next frame. */
-  private frameWaiters = new Map<EngineId, () => void>()
+  /** Resolvers waiting for a view's next frame. */
+  private frameWaiters = new Map<string, () => void>()
 
-  private nextFrame(engine: EngineId, timeoutMs: number): Promise<void> {
+  private nextFrame(key: string, timeoutMs: number): Promise<void> {
     return new Promise((resolve) => {
       const done = () => {
-        this.frameWaiters.delete(engine)
+        this.frameWaiters.delete(key)
         resolve()
       }
-      this.frameWaiters.set(engine, done)
+      this.frameWaiters.set(key, done)
       setTimeout(done, timeoutMs)
     })
   }
 
-  private fromView<K extends keyof LiveEvents>(engine: EngineId, event: K, payload: LiveEvents[K]): void {
-    if (event === 'frame') this.frameWaiters.get(engine)?.()
+  private fromView<K extends keyof ViewEvents>(key: string, engine: EngineId, event: K, payload: ViewEvents[K]): void {
     if (event === 'console') {
-      const entry = payload as LiveEvents['console']
+      const entry = payload as ViewEvents['console']
       this.onConsole?.(engine, entry.text)
-      return this.emit(event, payload)
+      return this.emit('console', entry)
     }
-    if (event === 'url') this.urls.set(engine, payload as string)
-    if (engine !== this.active) return
+    if (event === 'url') this.urls.set(key, payload as string)
+    // Per-view events go to the UI with the view's key; the UI shows them where that view is.
+    if (event === 'frame') {
+      this.frameWaiters.get(key)?.()
+      return this.emit('frame', { ...(payload as ViewEvents['frame']), view: key })
+    }
+    if (event === 'cursor') return this.emit('cursor', { view: key, cursor: payload as string })
+    if (event === 'snapshot') return this.emit('snapshot', { view: key, image: payload as string | null })
+    if (!this.shownKeys().includes(key)) return
     if (event === 'loading' && payload === false) this.broadcasting = false
-    if (event === 'url' && !this.broadcasting) this.follow(payload as string)
-    this.emit(event, payload)
+    if (event === 'url' && !this.broadcasting) this.follow(key, payload as string)
+    this.emit(event as 'url', payload as string)
   }
 
-  /** The shown view moved on its own (a link, a form, a script): bring the others along. */
-  private follow(url: string): void {
-    for (const [engine, view] of this.views) {
-      if (engine === this.active || sameUrl(this.urls.get(engine), url)) continue
-      this.urls.set(engine, url)
+  /** A shown view moved on its own (a link, a form, a script): bring every other view along. */
+  private follow(from: string, url: string): void {
+    if (this.settings) this.settings = { ...this.settings, url }
+    for (const [key, view] of this.views) {
+      if (key === from || sameUrl(this.urls.get(key), url)) continue
+      this.urls.set(key, url)
       void view.navigate(url)
     }
   }
 
-  /** Show an engine and apply size and colour scheme to every view, without reloading. */
+  /** Single-page view: show an engine and apply size and colour scheme to every view, without reloading. */
   async start(opts: LiveOptions): Promise<void> {
     this.starts++
     const { engine, ...settings } = opts
     const first = !this.settings
     this.settings = settings
+    this.leaveCanvas()
     this.active = engine
     if (first) this.broadcasting = true
-    await Promise.all(ENGINES.map((e) => this.view(e).update({ ...settings, engine: e })))
+    await Promise.all(ENGINES.map((e) => this.view(e).update({ ...this.settings!, engine: e })))
     const target = this.view(engine)
     const drawsNatively = nativeEngines().includes(engine) || (target as { drawsNatively?: boolean }).drawsNatively
     if (!drawsNatively) {
@@ -149,15 +173,73 @@ export class EngineHost {
     } else {
       target.show()
     }
-    for (const [e, view] of this.views) if (e !== engine) view.hide()
+    for (const e of ENGINES) if (e !== engine) this.views.get(e)?.hide()
     const url = this.urls.get(engine)
     if (url) this.emit('url', url)
+  }
+
+  /**
+   * Canvas: show these frames, all at once, each at its own engine and size. Frames that already
+   * exist keep their page; the single-page views are hidden meanwhile.
+   */
+  async setCanvas(frames: CanvasFrame[]): Promise<void> {
+    if (!this.settings) return
+    const url = this.currentUrl() ?? this.settings.url
+    this.settings = { ...this.settings, url }
+    if (!this.canvas) for (const e of ENGINES) this.views.get(e)?.hide()
+    const next = new Map(frames.map((f) => [f.id, f]))
+    for (const id of this.canvas?.keys() ?? []) if (!next.has(id)) this.dropView(canvasKey(id))
+    this.canvas = next
+    await Promise.all(
+      frames.map(async (f) => {
+        const key = canvasKey(f.id)
+        if (this.views.get(key)?.engine !== f.engine) this.dropView(key) // Engine changed: a new page.
+        const view = this.views.get(key) ?? this.makeView(key, f.engine)
+        await view.update({ ...this.settings!, url: this.urls.get(key) ?? url, engine: f.engine, viewport: f.viewport })
+        view.show()
+      })
+    )
+  }
+
+  /** Where a canvas frame's page sits, and the canvas area it's cut off at. */
+  async setFrameRect(id: string, rect: ViewRect): Promise<void> {
+    await this.views.get(canvasKey(id))?.setRect(rect)
+  }
+
+  frameInput(id: string, e: InputEvent): void {
+    this.views.get(canvasKey(id))?.input(e)
+  }
+
+  /** Back to the single-page view: the canvas frames close. */
+  private leaveCanvas(): void {
+    if (!this.canvas) return
+    for (const id of this.canvas.keys()) this.dropView(canvasKey(id))
+    this.canvas = undefined
+  }
+
+  private dropView(key: string): void {
+    this.views.get(key)?.destroy()
+    this.views.delete(key)
+    this.urls.delete(key)
   }
 
   async resize(viewport: Viewport): Promise<void> {
     if (!this.settings) return
     this.settings = { ...this.settings, viewport }
-    await Promise.all([...this.views].map(([e, v]) => v.update({ ...this.settings!, engine: e })))
+    await Promise.all(ENGINES.map((e) => this.views.get(e)?.update({ ...this.settings!, engine: e })))
+  }
+
+  /** Dark mode for every view (the canvas has no start() to carry it). */
+  async setColorScheme(colorScheme: 'light' | 'dark'): Promise<void> {
+    if (!this.settings) return
+    this.settings = { ...this.settings, colorScheme }
+    const url = this.currentUrl()
+    await Promise.all(
+      [...this.views].map(([key, v]) => {
+        const f = key.startsWith('canvas:') ? this.canvas?.get(key.slice(7)) : undefined
+        return v.update({ ...this.settings!, url: this.urls.get(key) ?? url ?? this.settings!.url, engine: v.engine, ...(f ? { viewport: f.viewport } : {}) })
+      })
+    )
   }
 
   /** Typed URLs and back, forward, reload go to every view. */
@@ -165,7 +247,7 @@ export class EngineHost {
     await this.clearing
     if (this.settings) this.settings = { ...this.settings, url }
     this.broadcasting = true
-    for (const e of this.views.keys()) this.urls.set(e, url)
+    for (const key of this.views.keys()) this.urls.set(key, url)
     await Promise.all([...this.views.values()].map((v) => v.navigate(url)))
   }
 
@@ -176,23 +258,26 @@ export class EngineHost {
   }
 
   find(req: FindRequest): Promise<void> {
-    return this.active ? this.view(this.active).find(req) : Promise.resolve()
+    const key = this.shownKeys()[0]
+    const view = key ? this.views.get(key) : undefined
+    return view ? view.find(req) : Promise.resolve()
   }
 
   input(e: InputEvent): void {
-    if (this.active) this.view(this.active).input(e)
+    if (this.active && !this.canvas) this.views.get(this.active)?.input(e)
   }
 
-  /** Every native view learns the page area; only the shown one appears there. */
+  /** Every single-page view learns the page area; only the shown one appears there. */
   async setRect(rect: ViewRect): Promise<void> {
     this.rect = rect
-    await Promise.all([...this.views.values()].map((v) => v.setRect(rect)))
+    await Promise.all(ENGINES.map((e) => this.views.get(e)?.setRect(rect)))
   }
 
   /** Close every view and drop this window's data. */
   destroy(): void {
     for (const view of this.views.values()) view.destroy()
     this.views.clear()
+    this.canvas = undefined
     const id = this.storageId
     const chrome = session.fromPartition(`swivel-${id}`)
     void chrome.clearStorageData().catch(() => {})

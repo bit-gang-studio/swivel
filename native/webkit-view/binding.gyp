@@ -4,7 +4,7 @@
       "target_name": "webkit_view",
       "conditions": [
         ["OS=='mac'", {
-          "sources": ["webkit_view.mm", "mirror.mm"],
+          "sources": ["webkit_view.mm", "mirror.mm", "clip.mm"],
           "include_dirs": ["<!(node -p \"require('node-addon-api').include_dir\")"],
           "defines": ["NAPI_VERSION=8", "NAPI_DISABLE_CPP_EXCEPTIONS"],
           "xcode_settings": {

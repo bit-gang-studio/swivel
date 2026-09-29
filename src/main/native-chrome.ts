@@ -90,7 +90,7 @@ export class NativeChrome implements PageView {
 
   show(): void {
     this.active = true
-    if (this.view && this.rect) this.view.setVisible(true)
+    if (this.view && this.rect && !this.cut) this.view.setVisible(true)
   }
 
   hide(): void {
@@ -146,11 +146,50 @@ export class NativeChrome implements PageView {
 
   /** Where the page area is in the window, in window pixels. Sent by the UI when layout changes. */
   async setRect(rect: ViewRect): Promise<void> {
+    // Moving (a canvas pan) keeps the scale; only a new size needs the zoom reapplied.
+    const resized = !this.rect || Math.abs(rect.width - this.rect.width) > 0.5
     this.rect = rect
     if (!this.view) return
     this.view.setBounds(this.bounds(rect))
-    await this.applyEmulation()
-    if (this.opts && this.active) this.view.setVisible(true)
+    if (resized) await this.applyEmulation()
+    this.updateCut()
+  }
+
+  /**
+   * Partly outside its clip area (a canvas frame under the toolbar)? A Chromium view can't be cut
+   * off on macOS (Electron doesn't clip it), so it's swapped for a still image of itself, which
+   * the UI clips, until it's fully in view again.
+   */
+  private cut = false
+
+  private updateCut(): void {
+    const r = this.rect
+    const c = r?.clip
+    // Only edges inside the window count: the window's own edges already cut native views off.
+    const w = this.win.getContentBounds()
+    const cut =
+      !!r &&
+      !!c &&
+      ((c.x > 0.5 && r.x < c.x - 0.5) ||
+        (c.y > 0.5 && r.y < c.y - 0.5) ||
+        (c.x + c.width < w.width - 0.5 && r.x + r.width > c.x + c.width + 0.5) ||
+        (c.y + c.height < w.height - 0.5 && r.y + r.height > c.y + c.height + 0.5))
+    if (cut !== this.cut) {
+      this.cut = cut
+      if (cut) void this.swapForSnapshot()
+      else this.emit('snapshot', null)
+    }
+    if (!cut && this.opts && this.active) this.view?.setVisible(true)
+  }
+
+  private async swapForSnapshot(): Promise<void> {
+    // Let a new size or zoom paint first, or the image shows the old layout.
+    await new Promise((r) => setTimeout(r, 100))
+    if (!this.cut) return
+    const image = await this.view?.webContents.capturePage().catch(() => undefined)
+    if (!this.cut) return
+    this.emit('snapshot', image && !image.isEmpty() ? image.toDataURL() : null)
+    this.view?.setVisible(false)
   }
 
   private scale(): number {

@@ -116,6 +116,26 @@ export async function visualCheck(win: BrowserWindow, dir: string, newWindow: ()
     await sleep(5000)
     await shot(`google-${engine}`)
   }
+  // Canvas: Chromium, Firefox and WebKit frames side by side. Panned partly under the toolbar,
+  // each must be cut off at the canvas edge, never drawn over the toolbar.
+  await go('https://en.wikipedia.org/wiki/Oscar_Piastri')
+  await sleep(2000)
+  await ui(`document.querySelector('button[aria-label="Canvas"]').click()`)
+  await sleep(12000)
+  await shot('canvas')
+  const wheel = (dx: number, dy: number, ctrl = false) =>
+    ui(`(() => { const c = document.querySelector('.canvas'); const r = c.getBoundingClientRect(); c.dispatchEvent(new WheelEvent('wheel', { deltaX: ${dx}, deltaY: ${dy}, ctrlKey: ${ctrl}, clientX: r.left + 20, clientY: r.top + 20, bubbles: true, cancelable: true })) })()`)
+  await wheel(0, 120)
+  await sleep(3000)
+  await shot('canvas-panned')
+  await wheel(0, -120)
+  await wheel(0, -150, true)
+  await sleep(4000)
+  await shot('canvas-zoomed')
+  await ui(`document.querySelector('button[aria-label="Canvas"]').click()`)
+  await sleep(4000)
+  await shot('canvas-off')
+
   // Two windows, both on Firefox with different pages: each gets its own parked, mirrored window.
   win.setBounds({ x: 0, y: 30, width: 510, height: 700 })
   const second = newWindow()

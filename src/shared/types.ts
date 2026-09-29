@@ -35,7 +35,8 @@ export type InputEvent =
   | { kind: 'wheel'; x: number; y: number; dx: number; dy: number }
   | { kind: 'keydown' | 'keyup'; key: string }
 
-export interface LiveEvents {
+/** What a page view reports. */
+export interface ViewEvents {
   frame: Frame
   console: ConsoleEntry
   url: string
@@ -45,15 +46,41 @@ export interface LiveEvents {
   cursor: string
   /** Find-in-page progress. */
   find: { matches: number; active: number }
+  /** A still image (PNG data URL) to show while a native view can't be (cut off), or null. */
+  snapshot: string | null
+}
+
+/**
+ * What the UI hears. Events for one view carry its key: the engine in the single-page view, or
+ * the frame id on the canvas.
+ */
+export interface LiveEvents extends Omit<ViewEvents, 'frame' | 'cursor' | 'snapshot'> {
+  frame: Frame & { view: string }
+  cursor: { view: string; cursor: string }
+  snapshot: { view: string; image: string | null }
   /** A menu command, such as 'find' or 'focus-address'. */
   command: string
 }
 
-/** The page area's position in the window, in CSS pixels of the app window. */
-export interface ViewRect {
+export interface Rect {
   x: number
   y: number
   width: number
   height: number
+}
+
+/**
+ * Where a page sits in the window, in CSS pixels of the app window. clip: the area it may draw
+ * in (a canvas frame can be partly outside the canvas).
+ */
+export interface ViewRect extends Rect {
+  clip?: Rect
+}
+
+/** A page on the canvas: its engine and screen size. */
+export interface CanvasFrame {
+  id: string
+  engine: EngineId
+  viewport: Viewport
 }
 

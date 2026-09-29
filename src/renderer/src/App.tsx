@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import type { ConsoleEntry, EngineId, Viewport } from '../../shared/types'
 import { ENGINES, SIZES, engineHint, engineLabel } from './engines'
 import { LiveView } from './LiveView'
+import { Canvas } from './Canvas'
 import { NativeView } from './NativeView'
 import { FindBar } from './FindBar'
 
@@ -19,6 +20,7 @@ const ICONS = {
   reload: 'M21 12a9 9 0 1 1-2.6-6.4L21 8M21 3v5h-5',
   moon: 'M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z',
   console: 'M4 17l6-5-6-5M12 19h8',
+  canvas: 'M3 3h8v8H3zM13 3h8v5h-8zM13 10h8v11h-8zM3 13h8v8H3z',
   trash: 'M4 7h16M10 11v6M14 11v6M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-12M9 7V4h6v3'
 }
 
@@ -51,6 +53,8 @@ export function App() {
   const [findFocus, setFindFocus] = useState(0)
   const addressInput = useRef<HTMLInputElement>(null)
   const [dark, setDark] = useState(false)
+  /** Single page, or the canvas: several frames side by side. */
+  const [canvas, setCanvas] = useState(false)
   const [logs, setLogs] = useState<ConsoleEntry[]>([])
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -98,13 +102,18 @@ export function App() {
   // Restart the live page whenever the engine, size or colour scheme changes.
   const ready = viewport !== null
   useEffect(() => {
-    if (!viewport) return
+    if (!viewport || canvas) return
     setError(null)
     void window.swivel.start({ engine, url, viewport, colorScheme: dark ? 'dark' : 'light', pixelRatio: window.devicePixelRatio })
     // url is left out on purpose: navigation inside the page must not restart it. Window
     // resizes in "Fill window" resize the page instead (below).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [engine, size, dark, ready])
+  }, [engine, size, dark, ready, canvas])
+
+  // The canvas has no start(): dark mode goes to its frames directly.
+  useEffect(() => {
+    if (canvas) void window.swivel.setColorScheme(dark ? 'dark' : 'light')
+  }, [dark, canvas])
 
   // In "Fill window", follow the window size without reloading the page.
   useEffect(() => {
@@ -178,24 +187,31 @@ export function App() {
             spellCheck={false}
           />
         </label>
-        <div className="segmented" role="group" aria-label="Browser engine">
-          {ENGINES.map((id) => (
-            <button key={id} type="button" aria-pressed={engine === id} title={engineHint(id, platform)} onClick={() => setEngine(id)}>
-              {engineLabel(id)}
-            </button>
-          ))}
-        </div>
-        <label>
-          <span className="sr-only">Screen size</span>
-          <select className="size" value={String(size)} onChange={(e) => setSize(e.target.value === 'fill' ? 'fill' : Number(e.target.value))}>
-            <option value="fill">Fill window</option>
-            {SIZES.map((s, i) => (
-              <option key={s.label} value={i}>
-                {s.label} · {s.viewport.width}
-              </option>
-            ))}
-          </select>
-        </label>
+        {!canvas && (
+          <>
+            <div className="segmented" role="group" aria-label="Browser engine">
+              {ENGINES.map((id) => (
+                <button key={id} type="button" aria-pressed={engine === id} title={engineHint(id, platform)} onClick={() => setEngine(id)}>
+                  {engineLabel(id)}
+                </button>
+              ))}
+            </div>
+            <label>
+              <span className="sr-only">Screen size</span>
+              <select className="size" value={String(size)} onChange={(e) => setSize(e.target.value === 'fill' ? 'fill' : Number(e.target.value))}>
+                <option value="fill">Fill window</option>
+                {SIZES.map((s, i) => (
+                  <option key={s.label} value={i}>
+                    {s.label} · {s.viewport.width}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </>
+        )}
+        <button type="button" className="icon" aria-label="Canvas" title="Canvas: several engines and sizes side by side" aria-pressed={canvas} onClick={() => setCanvas(!canvas)}>
+          <Icon d={ICONS.canvas} />
+        </button>
         <button
           type="button"
           className="icon"
@@ -220,14 +236,19 @@ export function App() {
 
       {findOpen && <FindBar focusToken={findFocus} engine={engine} onClose={() => setFindOpen(false)} />}
 
-      <main ref={areaRef} className={size === 'fill' ? 'viewport fill' : 'viewport'}>
+      {/* Always mounted: "Fill window" measures it. */}
+      <main ref={areaRef} className={canvas ? 'viewport with-canvas' : size === 'fill' ? 'viewport fill' : 'viewport'}>
         {error && <p className="status error">{error}</p>}
-        {viewport &&
+        {canvas ? (
+          <Canvas />
+        ) : (
+          viewport &&
           (window.swivel.nativeEngines.includes(engine) ? (
             <NativeView viewport={viewport} engine={engine} />
           ) : (
-            <LiveView viewport={viewport} engine={engine} label={engineLabel(engine)} />
-          ))}
+            <LiveView viewport={viewport} engine={engine} label={engineLabel(engine)} viewKey={engine} send={window.swivel.input} />
+          ))
+        )}
       </main>
 
       {consoleOpen && (

@@ -8,7 +8,7 @@ import { visualCheck } from './visual'
 import { installMenu } from './menu'
 import { windowedFirefoxStatus } from './firefox-window'
 import type { FindRequest } from '../shared/find'
-import type { InputEvent, LiveOptions, ViewRect, Viewport } from '../shared/types'
+import type { CanvasFrame, InputEvent, LiveOptions, ViewRect, Viewport } from '../shared/types'
 
 // Electron's own security warnings would show up in the console of every page viewed in Chrome.
 process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = 'true'
@@ -75,6 +75,10 @@ ipcMain.on('swivel:native-engines', (e) => (e.returnValue = nativeEngines()))
 ipcMain.handle('swivel:find', (e, req: FindRequest) => sessions.get(e.sender.id)?.find(req))
 ipcMain.handle('swivel:resize', (e, viewport: Viewport) => sessions.get(e.sender.id)?.resize(viewport))
 ipcMain.handle('swivel:rect', (e, rect: ViewRect) => sessions.get(e.sender.id)?.setRect(rect))
+ipcMain.handle('swivel:canvas', (e, frames: CanvasFrame[]) => sessions.get(e.sender.id)?.setCanvas(frames))
+ipcMain.handle('swivel:frame-rect', (e, id: string, rect: ViewRect) => sessions.get(e.sender.id)?.setFrameRect(id, rect))
+ipcMain.on('swivel:frame-input', (e, id: string, input: InputEvent) => sessions.get(e.sender.id)?.frameInput(id, input))
+ipcMain.handle('swivel:color-scheme', (e, scheme: 'light' | 'dark') => sessions.get(e.sender.id)?.setColorScheme(scheme))
 ipcMain.handle('swivel:clear-data', (e) => sessions.get(e.sender.id)?.clearData())
 ipcMain.on('swivel:input', (e, input: InputEvent) => sessions.get(e.sender.id)?.input(input))
 

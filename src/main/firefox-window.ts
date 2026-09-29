@@ -20,6 +20,7 @@ interface MirrorAddon {
   requestScreenCaptureAccess(): boolean
   mirrorCreate(parent: Buffer, pid: number, x: number, y: number, width: number, height: number, cb: (err: string | null, id: number | null) => void): void
   mirrorSetFrame(id: number, x: number, y: number, w: number, h: number): void
+  mirrorSetClip(id: number, x?: number, y?: number, w?: number, h?: number): void
   mirrorResizeSource(id: number, w: number, h: number): void
   mirrorSetHidden(id: number, hidden: boolean): void
   mirrorDestroy(id: number): void
@@ -279,13 +280,15 @@ export class FirefoxWindow {
   private layout(): void {
     if (this.id === undefined || !mirror) return
     if (this.rect) mirror.mirrorSetFrame(this.id, this.rect.x, this.rect.y, this.rect.width, this.rect.height)
+    const c = this.rect?.clip
+    if (c) mirror.mirrorSetClip(this.id, c.x, c.y, c.width, c.height)
+    else mirror.mirrorSetClip(this.id)
     mirror.mirrorSetHidden(this.id, !this.visible || !this.rect || this.suspended)
   }
 
   setRect(rect: ViewRect): void {
     this.rect = rect
     this.layout()
-    void this.place()
   }
 
   resize(viewport: Viewport): void {
