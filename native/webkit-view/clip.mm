@@ -9,6 +9,11 @@
 @end
 @implementation SwivelClip
 - (BOOL)isFlipped { return YES; }
+// Clicks go to the page inside, or through to the window beneath: the clip itself is never a target.
+- (NSView*)hitTest:(NSPoint)point {
+  NSView* hit = [super hitTest:point];
+  return hit == self ? nil : hit;
+}
 @end
 
 NSView* SwivelMakeClip(NSView* content) {
