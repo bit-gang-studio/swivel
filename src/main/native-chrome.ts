@@ -4,6 +4,8 @@ import type { Emit, PageView } from './view'
 import type { FindRequest } from '../shared/find'
 
 
+const debug = (...args: unknown[]) => process.env.SWIVEL_DEBUG && console.log('[swivel] chromium', ...args)
+
 const LEVELS = { debug: 'debug', info: 'log', warning: 'warning', error: 'error' } as const
 
 /**
@@ -89,11 +91,13 @@ export class NativeChrome implements PageView {
   }
 
   show(): void {
+    debug('show', !!this.view, JSON.stringify(this.rect), this.cut)
     this.active = true
     if (this.view && this.rect && !this.cut) this.view.setVisible(true)
   }
 
   hide(): void {
+    debug('hide')
     this.active = false
     this.view?.setVisible(false)
   }
@@ -103,6 +107,7 @@ export class NativeChrome implements PageView {
   }
 
   private async open(opts: LiveOptions): Promise<void> {
+    debug('open', opts.url.slice(0, 40), JSON.stringify(opts.viewport), 'view', !!this.view)
     const sameUrl = this.opts?.url === opts.url
     // Only the size changed (a window resize): just the zoom, no DevTools round trip.
     if (this.view && this.opts && sameUrl && this.opts.colorScheme === opts.colorScheme) {
@@ -150,6 +155,7 @@ export class NativeChrome implements PageView {
 
   /** Where the page area is in the window, in window pixels. Sent by the UI when layout changes. */
   async setRect(rect: ViewRect): Promise<void> {
+    debug('setRect', JSON.stringify(rect), 'view', !!this.view, 'active', this.active)
     if (rect.width < 1 || rect.height < 1) return // Mid-layout; a page can't be 0 pixels wide.
     // Moving (a canvas pan) keeps the scale; a new size only needs the zoom reapplied.
     const resized = !this.rect || Math.abs(rect.width - this.rect.width) > 0.5
@@ -213,6 +219,7 @@ export class NativeChrome implements PageView {
     // Within a rounding error of 1 (window and page sizes arrive separately): stay at 1, so a
     // resize doesn't flicker the zoom.
     const scale = this.scale()
+    debug('zoom', scale)
     wc.setZoomFactor(Math.abs(scale - 1) < 0.01 ? 1 : scale)
   }
 

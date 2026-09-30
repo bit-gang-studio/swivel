@@ -40,7 +40,7 @@ jobs:
         if: runner.os != 'Linux'
         timeout-minutes: 3
         shell: bash
-        run: SWIVEL_SELFTEST=1 SWIVEL_HIDDEN=1 npx electron .
+        run: SWIVEL_SELFTEST=1 SWIVEL_HIDDEN=1 SWIVEL_DEBUG=1 npx electron .
       - name: Real clicks (macOS)
         if: runner.os == 'macOS'
         timeout-minutes: 4
