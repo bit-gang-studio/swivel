@@ -150,6 +150,7 @@ export class NativeChrome implements PageView {
 
   /** Where the page area is in the window, in window pixels. Sent by the UI when layout changes. */
   async setRect(rect: ViewRect): Promise<void> {
+    if (rect.width < 1 || rect.height < 1) return // Mid-layout; a page can't be 0 pixels wide.
     // Moving (a canvas pan) keeps the scale; a new size only needs the zoom reapplied.
     const resized = !this.rect || Math.abs(rect.width - this.rect.width) > 0.5
     const first = !this.rect

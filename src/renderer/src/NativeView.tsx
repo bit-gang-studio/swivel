@@ -18,6 +18,7 @@ export function NativeView({ viewport, engine }: { viewport: Viewport; engine: E
       const width = Math.floor(viewport.width * scale)
       const height = Math.floor(viewport.height * scale)
       setBox({ width, height })
+      if (width < 1 || height < 1) return // Mid-layout.
       const r = el.getBoundingClientRect()
       void window.swivel.setRect({
         x: r.left + (el.clientWidth - width) / 2,
