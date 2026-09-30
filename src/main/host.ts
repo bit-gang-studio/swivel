@@ -103,6 +103,11 @@ export class EngineHost {
     return view
   }
 
+  /** Test hook: each view's latest URL. */
+  get viewUrls(): Record<string, string> {
+    return Object.fromEntries(this.urls)
+  }
+
   /** Test hook: where the single-page view's page sits. */
   get pageRect(): ViewRect | undefined {
     return this.rect

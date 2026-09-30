@@ -14,7 +14,7 @@ export async function clickTest(win: BrowserWindow, host: EngineHost): Promise<v
   const results: string[] = []
   let failed = false
   const check = (label: string, ok: boolean) => {
-    results.push(`${ok ? 'ok' : 'FAIL'} ${label}`)
+    results.push(`${ok ? 'ok' : 'FAIL'} ${label}${ok ? '' : ' ' + JSON.stringify(Object.fromEntries(Object.entries(host.viewUrls).map(([k, u]) => [k, u.slice(0, 30)])))}`)
     if (!ok) failed = true
   }
   const finish = () => {
