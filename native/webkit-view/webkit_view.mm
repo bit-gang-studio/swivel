@@ -179,6 +179,13 @@ static Napi::Value SetClip(const Napi::CallbackInfo& info) {
   return info.Env().Undefined();
 }
 
+// clickAt(windowHandle, x, y): test hook, a real click in window points (top-left).
+static Napi::Value ClickAt(const Napi::CallbackInfo& info) {
+  void* raw = *reinterpret_cast<void**>(info[0].As<Napi::Buffer<uint8_t>>().Data());
+  SwivelClickAt((__bridge NSView*)raw, info[1].As<Napi::Number>().DoubleValue(), info[2].As<Napi::Number>().DoubleValue());
+  return info.Env().Undefined();
+}
+
 static Napi::Value Load(const Napi::CallbackInfo& info) {
   SwivelWebView* v = Get(info);
   std::string url = info[1].As<Napi::String>();
@@ -255,6 +262,7 @@ static Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("create", Napi::Function::New(env, Create));
   exports.Set("setFrame", Napi::Function::New(env, SetFrame));
   exports.Set("setClip", Napi::Function::New(env, SetClip));
+  exports.Set("clickAt", Napi::Function::New(env, ClickAt));
   exports.Set("load", Napi::Function::New(env, Load));
   exports.Set("history", Napi::Function::New(env, History));
   exports.Set("setHidden", Napi::Function::New(env, SetHidden));

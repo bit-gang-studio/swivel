@@ -6,3 +6,5 @@ NSView* SwivelMakeClip(NSView* content);
 void SwivelClipTo(NSView* clip, NSView* content, double x, double y, double w, double h);
 /** No clipping: the clip view fills content again. */
 void SwivelClipReset(NSView* clip, NSView* content);
+/** Test hook: a real click at x, y (content top-left coordinates), hit-tested like a user's. */
+void SwivelClickAt(NSView* content, double x, double y);

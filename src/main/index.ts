@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { closeAllBrowsers, prewarmBrowsers } from './live'
 import { EngineHost, nativeEngines, streamedEngines } from './host'
 import { selfTest } from './selftest'
+import { clickTest } from './clicktest'
 import { visualCheck } from './visual'
 import { installMenu } from './menu'
 import { windowedFirefoxStatus } from './firefox-window'
@@ -47,6 +48,7 @@ function createWindow(): BrowserWindow {
   sessions.set(id, host)
   // Test runs reach the host from Playwright's main-process evaluate.
   if (process.env.SWIVEL_HIDDEN && sessions.size === 1) (globalThis as { swivelHost?: EngineHost }).swivelHost = host
+  if (process.env.SWIVEL_CLICKTEST && sessions.size === 1) win.webContents.once('did-finish-load', () => void clickTest(win, host))
   if (process.env.SWIVEL_SELFTEST && sessions.size === 1) win.webContents.once('did-finish-load', () => void selfTest(win, host))
   const visualDir = process.env.SWIVEL_VISUAL
   if (visualDir && sessions.size === 1) win.webContents.once('did-finish-load', () => void visualCheck(win, visualDir, createWindow))

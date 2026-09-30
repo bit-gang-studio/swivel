@@ -8,6 +8,8 @@ import { findInPage, type FindRequest, type FindResult } from '../shared/find'
 interface Addon {
   /** store: the Swivel window's data key; views with the same key share one in-memory data store. */
   create(parent: Buffer, onEvent: (type: string, a: string, b: string) => void, store: string): number
+  /** Test hook: a real click at x, y in window points, hit-tested by macOS like a user's. */
+  clickAt?(parent: Buffer, x: number, y: number): void
   /** Drop a window's data store (once its views are gone). */
   releaseStore?(store: string): void
   setFrame(id: number, x: number, y: number, w: number, h: number, vw: number, vh: number): void

@@ -37,3 +37,17 @@ void SwivelClipReset(NSView* clip, NSView* content) {
   clip.bounds = NSMakeRect(0, 0, content.bounds.size.width, content.bounds.size.height);
   clip.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
 }
+
+// Test hook: a real left click at x, y (window content points, top-left), sent through the window
+// like a mouse click, so it's hit-tested by macOS exactly as a user's would be.
+void SwivelClickAt(NSView* content, double x, double y) {
+  NSWindow* window = content.window;
+  NSPoint inContent = NSMakePoint(x, content.isFlipped ? y : content.bounds.size.height - y);
+  NSPoint p = [content convertPoint:inContent toView:nil];
+  NSEventType types[] = {NSEventTypeLeftMouseDown, NSEventTypeLeftMouseUp};
+  for (NSEventType type : types) {
+    NSEvent* e = [NSEvent mouseEventWithType:type location:p modifierFlags:0 timestamp:NSProcessInfo.processInfo.systemUptime
+                                windowNumber:window.windowNumber context:nil eventNumber:0 clickCount:1 pressure:1];
+    [NSApp postEvent:e atStart:NO];
+  }
+}

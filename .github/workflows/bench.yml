@@ -41,6 +41,10 @@ jobs:
         timeout-minutes: 3
         shell: bash
         run: SWIVEL_SELFTEST=1 SWIVEL_HIDDEN=1 npx electron .
+      - name: Real clicks (macOS)
+        if: runner.os == 'macOS'
+        timeout-minutes: 4
+        run: SWIVEL_CLICKTEST=1 npx electron .
       - name: Visual check (macOS)
         if: runner.os == 'macOS'
         timeout-minutes: 4
@@ -75,6 +79,8 @@ jobs:
         timeout-minutes: 5
         if: runner.os == 'Linux'
         run: xvfb-run -a node scripts/e2e-isolation.mjs
+        env:
+          SWIVEL_DEBUG: '1'
       - name: App test
         timeout-minutes: 8
         if: runner.os != 'Linux'
@@ -83,3 +89,5 @@ jobs:
         timeout-minutes: 5
         if: runner.os != 'Linux'
         run: node scripts/e2e-isolation.mjs
+        env:
+          SWIVEL_DEBUG: '1'

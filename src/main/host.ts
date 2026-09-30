@@ -103,6 +103,11 @@ export class EngineHost {
     return view
   }
 
+  /** Test hook: where the single-page view's page sits. */
+  get pageRect(): ViewRect | undefined {
+    return this.rect
+  }
+
   /** Test hook. */
   get(engine: EngineId): PageView | undefined {
     return this.views.get(engine)
