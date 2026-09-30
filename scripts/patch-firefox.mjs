@@ -16,7 +16,7 @@ const exe = firefox.executablePath() // .../firefox-NNNN/firefox/Nightly.app/Con
 const source = dirname(dirname(dirname(exe)))
 const revision = source.match(/firefox-(\d+)/)?.[1] ?? 'unknown'
 const dest = join(homedir(), 'Library/Caches/swivel', `firefox-window-${revision}`, 'Nightly.app')
-const MARKER = 'swivel-patch-v19'
+const MARKER = 'swivel-patch-v20'
 const SWIVEL_NATIVE_TWEAKS = `
 // Swivel: native window tweaks, run from inside Firefox (js-ctypes, Objective-C runtime).
 // - Accessory app: no Dock icon or app switcher entry. Firefox makes itself a regular app at
@@ -141,6 +141,14 @@ patch(`${juggler}/protocol/PageHandler.js`, "  async ['Page.setZoom']({zoom}) {"
     swivelNativeTweaks(below);
   }
 
+  async ['Page.swivelWheel']({x, y, deltaX, deltaY}) {
+    // Scroll like a trackpad, at once: Page.dispatchWheelEvent first waits for the compositor to
+    // flush (and Playwright for a frame), so every scroll step lagged.
+    const box = this._pageTarget._linkedBrowser.getBoundingClientRect();
+    const trunc = (d) => d > 0 ? Math.floor(d) : Math.ceil(d);
+    this._pageTarget._window.windowUtils.sendWheelEvent(x + box.left, y + box.top, deltaX, deltaY, 0, 0, 0, trunc(deltaX), trunc(deltaY), 0);
+  }
+
   async ['Page.nativeTweaks']({parkX}) {
     return { result: JSON.stringify(swivelNativeTweaks(undefined, parkX === undefined ? undefined : { x: parkX, y: 0 })) };
   }
@@ -166,6 +174,9 @@ patch(`${juggler}/protocol/Protocol.js`, "    'setZoom': {", `    'moveWindow': 
     },
     'orderBelow': {
       params: { below: t.Number },
+    },
+    'swivelWheel': {
+      params: { x: t.Number, y: t.Number, deltaX: t.Number, deltaY: t.Number },
     },
     'nativeTweaks': {
       params: { parkX: t.Optional(t.Number) },

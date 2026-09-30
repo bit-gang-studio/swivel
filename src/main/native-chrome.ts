@@ -104,9 +104,13 @@ export class NativeChrome implements PageView {
 
   private async open(opts: LiveOptions): Promise<void> {
     const sameUrl = this.opts?.url === opts.url
+    // Only the size changed (a window resize): just the zoom, no DevTools round trip.
+    if (this.view && this.opts && sameUrl && this.opts.colorScheme === opts.colorScheme) {
+      this.opts = opts
+      return this.applyZoom()
+    }
     this.opts = opts
     const view = (this.view ??= this.create())
-    this.active = true
     await this.blank
     await this.applyEmulation()
     if (!sameUrl || view.webContents.getURL() === 'about:blank') this.load(opts.url)
@@ -146,12 +150,14 @@ export class NativeChrome implements PageView {
 
   /** Where the page area is in the window, in window pixels. Sent by the UI when layout changes. */
   async setRect(rect: ViewRect): Promise<void> {
-    // Moving (a canvas pan) keeps the scale; only a new size needs the zoom reapplied.
+    // Moving (a canvas pan) keeps the scale; a new size only needs the zoom reapplied.
     const resized = !this.rect || Math.abs(rect.width - this.rect.width) > 0.5
+    const first = !this.rect
     this.rect = rect
     if (!this.view) return
     this.view.setBounds(this.bounds(rect))
-    if (resized) await this.applyEmulation()
+    if (first) await this.applyEmulation()
+    else if (resized) this.applyZoom()
     this.updateCut()
   }
 
@@ -200,6 +206,15 @@ export class NativeChrome implements PageView {
     return { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) }
   }
 
+  private applyZoom(): void {
+    const wc = this.view?.webContents
+    if (!wc || !this.rect || !this.committed || wc.isDestroyed()) return
+    // Within a rounding error of 1 (window and page sizes arrive separately): stay at 1, so a
+    // resize doesn't flicker the zoom.
+    const scale = this.scale()
+    wc.setZoomFactor(Math.abs(scale - 1) < 0.01 ? 1 : scale)
+  }
+
   private async applyEmulation(): Promise<void> {
     const wc = this.view?.webContents
     if (!wc || !this.opts || !this.committed || wc.isDestroyed()) return
@@ -208,7 +223,7 @@ export class NativeChrome implements PageView {
     // The view is sized to fit the page area; zoom makes the page lay out at the viewport width.
     // (A DevTools size override draws at full size and spills outside the view, so it's not used.)
     // Zoom is per origin, so this is reapplied after every navigation.
-    if (this.rect) wc.setZoomFactor(this.scale())
+    this.applyZoom()
 
     // Dark mode needs the DevTools protocol. Attaching it while a test runner is connected over
     // remote debugging crashes Electron, so it is skipped then.

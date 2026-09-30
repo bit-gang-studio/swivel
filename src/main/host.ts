@@ -228,11 +228,17 @@ export class EngineHost {
     this.urls.delete(key)
   }
 
+  /** "Fill window" resizes: the shown view follows at once; hidden ones catch up when it settles. */
   async resize(viewport: Viewport): Promise<void> {
     if (!this.settings) return
     this.settings = { ...this.settings, viewport }
-    await Promise.all(ENGINES.map((e) => this.views.get(e)?.update({ ...this.settings!, engine: e })))
+    const update = (e: EngineId) => this.views.get(e)?.update({ ...this.settings!, engine: e })
+    clearTimeout(this.resizeLater)
+    this.resizeLater = setTimeout(() => ENGINES.forEach((e) => e !== this.active && void update(e)), 400)
+    if (this.active) await update(this.active)
   }
+
+  private resizeLater?: ReturnType<typeof setTimeout>
 
   /** Dark mode for every view (the canvas has no start() to carry it). */
   async setColorScheme(colorScheme: 'light' | 'dark'): Promise<void> {
@@ -280,6 +286,7 @@ export class EngineHost {
 
   /** Close every view and drop this window's data. */
   destroy(): void {
+    clearTimeout(this.resizeLater)
     for (const view of this.views.values()) view.destroy()
     this.views.clear()
     this.canvas = undefined

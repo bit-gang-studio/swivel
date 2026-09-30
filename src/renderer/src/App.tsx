@@ -59,6 +59,8 @@ export function App() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const viewport = size === 'fill' ? area : SIZES[size].viewport
+  const engineRef = useRef(engine)
+  engineRef.current = engine
   const consoleOpenRef = useRef(consoleOpen)
   consoleOpenRef.current = consoleOpen
   // Like a real browser, never overwrite the address bar while the user is typing in it.
@@ -81,7 +83,8 @@ export function App() {
     return () => offs.forEach((off) => off())
   }, [])
 
-  // Measure the page area, for "Fill window". Resizes settle before they're applied.
+  // Measure the page area, for "Fill window". Native engines follow a window resize live, like a
+  // real browser; streamed engines (each resize costs a browser round trip) wait for it to settle.
   useEffect(() => {
     const el = areaRef.current
     if (!el) return
@@ -90,7 +93,8 @@ export function App() {
     measure()
     const observer = new ResizeObserver(() => {
       clearTimeout(timer)
-      timer = setTimeout(measure, 120)
+      if (window.swivel.nativeEngines.includes(engineRef.current)) measure()
+      else timer = setTimeout(measure, 120)
     })
     observer.observe(el)
     return () => {

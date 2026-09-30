@@ -3,7 +3,7 @@ import { app, screen, type BrowserWindow } from 'electron'
 import { chromium, firefox, webkit, type Browser, type BrowserContext, type BrowserType, type Page } from 'playwright-core'
 import type { EngineId, Frame, InputEvent, LiveOptions, ViewRect } from '../shared/types'
 import type { Emit, PageView } from './view'
-import { FrameSource } from './frames'
+import { FrameSource, jugglerSession } from './frames'
 import { FirefoxWindow, parkingSpot, windowedFirefoxStatus, windowedLaunchOptions } from './firefox-window'
 import { findInPage, type FindRequest } from '../shared/find'
 
@@ -390,6 +390,15 @@ export class StreamedView implements PageView {
         await this.moveTo(page, e.x, e.y)
         return page.mouse.up({ button: e.button })
       case 'wheel':
+        // Swivel's own Firefox scrolls at once; stock Playwright waits a frame and a compositor
+        // flush before every wheel step.
+        if (this.window || this.hiddenWindow) {
+          const session = jugglerSession(page)
+          if (session) {
+            await session.send('Page.swivelWheel', { x: e.x, y: e.y, deltaX: e.dx, deltaY: e.dy })
+            return
+          }
+        }
         await this.moveTo(page, e.x, e.y)
         return page.mouse.wheel(e.dx, e.dy)
       case 'keydown':
