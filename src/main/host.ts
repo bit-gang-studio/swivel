@@ -166,8 +166,10 @@ export class EngineHost {
     this.leaveCanvas()
     this.active = engine
     if (first) this.broadcasting = true
-    await Promise.all(ENGINES.map((e) => this.view(e).update({ ...this.settings!, engine: e })))
+    // The shown engine first; the others load in the background, so it never waits for them.
+    for (const e of ENGINES) if (e !== engine) void this.view(e).update({ ...this.settings!, engine: e })
     const target = this.view(engine)
+    await target.update({ ...this.settings!, engine })
     const drawsNatively = nativeEngines().includes(engine) || (target as { drawsNatively?: boolean }).drawsNatively
     if (!drawsNatively) {
       // A streamed engine draws in the UI, under any native view. Keep the old view up until
