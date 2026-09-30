@@ -171,6 +171,9 @@ export class EngineHost {
     this.leaveCanvas()
     this.active = engine
     if (first) this.broadcasting = true
+    // Views are headed to this URL now: a "follow" there would start a second load of the same
+    // page (Playwright's WebKit breaks on that).
+    for (const e of ENGINES) this.urls.set(e, this.settings.url)
     // The shown engine first; the others load in the background, so it never waits for them.
     for (const e of ENGINES) if (e !== engine) void this.view(e).update({ ...this.settings!, engine: e })
     const target = this.view(engine)
@@ -206,6 +209,7 @@ export class EngineHost {
       frames.map(async (f) => {
         const key = canvasKey(f.id)
         if (this.views.get(key)?.engine !== f.engine) this.dropView(key) // Engine changed: a new page.
+        if (!this.urls.has(key)) this.urls.set(key, url)
         const view = this.views.get(key) ?? this.makeView(key, f.engine)
         await view.update({ ...this.settings!, url: this.urls.get(key) ?? url, engine: f.engine, viewport: f.viewport })
         view.show()
