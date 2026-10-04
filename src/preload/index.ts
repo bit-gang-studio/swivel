@@ -23,6 +23,8 @@ const api = {
   frameInput: (id: string, e: InputEvent): void => ipcRenderer.send('swivel:frame-input', id, e),
   /** Focus mode: hide or show a canvas frame's page (it keeps running). */
   setFrameVisible: (id: string, visible: boolean): void => ipcRenderer.send('swivel:frame-visible', id, visible),
+  /** Show a hover label under a control (x: its centre; top, bottom: its edges), or hide it with null. Drawn above native pages. */
+  tip: (tip: { text: string; x: number; top: number; bottom: number } | null): void => ipcRenderer.send('swivel:tip', tip),
   /** Whether a scroll, click or typing in one frame is repeated in the others. */
   setSync: (on: boolean): void => ipcRenderer.send('swivel:sync', on),
   /** The frame find-in-page searches. */

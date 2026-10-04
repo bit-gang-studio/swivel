@@ -69,7 +69,7 @@ export interface CanvasHandle {
  *   breakpoints), or type a size. Double-click the header to focus it; the others keep running.
  * - Sets: saved groups of frames (engines and sizes), switched from the bar below.
  */
-export const Canvas = forwardRef<CanvasHandle, { url: string; dark: boolean; hint: string }>(function Canvas({ url, dark, hint }, ref) {
+export const Canvas = forwardRef<CanvasHandle, { url: string; dark: boolean }>(function Canvas({ url, dark }, ref) {
   const area = useRef<HTMLDivElement>(null)
   const [frames, setFrames] = useState<Placed[]>(() => inRow(BUILT_IN_SETS[0].frames))
   /** The set the frames came from, until they're changed. */
@@ -338,10 +338,7 @@ export const Canvas = forwardRef<CanvasHandle, { url: string; dark: boolean; hin
             )}
           </div>
         )}
-        {/* What the control under the pointer does (frames and this bar): a label beside it could be covered by a page. */}
-        <span className="hint" aria-live="polite">
-          {hint}
-        </span>
+<span className="spacer" />
         {shown && !focusedFrame && (
           <div className="zoomer" role="group" aria-label="Zoom">
             <button type="button" aria-label="Zoom out" data-tip="Zoom out" onClick={() => zoomTo(shown.zoom - 0.1)}>

@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { closeAllBrowsers, prewarmBrowsers } from './live'
 import { EngineHost, engineVersions, nativeEngines, streamedEngines } from './host'
 import { selfTest } from './selftest'
+import { hideTip, showTip } from './tooltip'
 import { clickTest } from './clicktest'
 import { visualCheck } from './visual'
 import { installMenu } from './menu'
@@ -83,6 +84,13 @@ ipcMain.handle('swivel:canvas', (e, frames: CanvasFrame[], page: { url: string; 
 ipcMain.handle('swivel:frame-rect', (e, id: string, rect: ViewRect) => sessions.get(e.sender.id)?.setFrameRect(id, rect))
 ipcMain.on('swivel:frame-input', (e, id: string, input: InputEvent) => sessions.get(e.sender.id)?.frameInput(id, input))
 ipcMain.on('swivel:frame-visible', (e, id: string, visible: boolean) => sessions.get(e.sender.id)?.setFrameVisible(id, visible))
+// Hover labels (not in test runs: nobody hovers, and an extra window only gets in the way).
+ipcMain.on('swivel:tip', (e, tip: { text: string; x: number; top: number; bottom: number } | null) => {
+  const win = BrowserWindow.fromWebContents(e.sender)
+  if (!win || process.env.SWIVEL_HIDDEN) return
+  if (tip) void showTip(win, tip.text, tip)
+  else hideTip(win)
+})
 ipcMain.on('swivel:sync', (e, on: boolean) => {
   const host = sessions.get(e.sender.id)
   if (host) host.syncOn = on

@@ -36,8 +36,14 @@ export function App() {
   const [dark, setDark] = useState(false)
   /** Scroll, click or type in one frame and the others repeat it. */
   const [sync, setSync] = useState(true)
-  /** The hover label for the control under the pointer, and where it shows. */
-  const [tip, setTip] = useState<{ text: string; zone: 'nav' | 'actions' | 'bar' } | null>(null)
+  /** The control whose hover label is up (or about to be). */
+  const tipped = useRef<Element | null>(null)
+  const tipTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const hideTip = () => {
+    clearTimeout(tipTimer.current)
+    if (tipped.current) window.swivel.tip(null)
+    tipped.current = null
+  }
   const canvas = useRef<CanvasHandle>(null)
   const addButton = useRef<HTMLButtonElement>(null)
   const [logs, setLogs] = useState<ConsoleEntry[]>([])
@@ -133,19 +139,25 @@ export function App() {
   return (
     <div
       className="app"
-      // Hover labels are drawn by the app, in its own rows: a system tooltip, or a label that drops
-      // below the toolbar, would be covered by a native page under it.
+      // Hover labels: shown under the control after a short pause, in a small window of their own
+      // (a native page would cover a label drawn here).
       onMouseOver={(e) => {
         const el = (e.target as Element).closest('[data-tip]')
+        if (el === tipped.current) return
+        hideTip()
         const text = el?.getAttribute('data-tip')
-        if (!el || !text) return setTip(null)
-        setTip({ text, zone: el.closest('.toolbar') ? (el.closest('.nav') ? 'nav' : 'actions') : 'bar' })
+        if (!el || !text) return
+        tipped.current = el
+        tipTimer.current = setTimeout(() => {
+          const r = el.getBoundingClientRect()
+          if (tipped.current === el && r.width) window.swivel.tip({ text, x: r.left + r.width / 2, top: r.top, bottom: r.bottom })
+        }, 350)
       }}
-      onMouseOut={(e) => !e.relatedTarget && setTip(null)} // Onto a native page, or out of the window.
-      onMouseLeave={() => setTip(null)}
+      onMouseOut={(e) => !e.relatedTarget && hideTip()} // Onto a native page, or out of the window.
+      onMouseLeave={hideTip}
+      onMouseDown={hideTip}
     >
       <form className="toolbar" onSubmit={onSubmit}>
-        <span className="nav">
         <button type="button" className="icon" aria-label="Back" data-tip={`Back (${keys(mac ? 'Mod+[' : 'Alt+Left')})`} onClick={() => void window.swivel.history('back')}>
           <Icon d={ICONS.back} />
         </button>
@@ -155,8 +167,6 @@ export function App() {
         <button type="button" className="icon" aria-label="Reload" data-tip={`Reload every frame (${keys('Mod+R')})`} onClick={() => void window.swivel.history('reload')}>
           <Icon d={ICONS.reload} />
         </button>
-        </span>
-        <span className="tip-anchor after">{tip?.zone === 'nav' && <span className="tip">{tip.text}</span>}</span>
         <label className="address">
           <span className="sr-only">Address</span>
           <input
@@ -173,7 +183,6 @@ export function App() {
             placeholder="Enter a URL"
           />
         </label>
-        <span className="tip-anchor before">{tip?.zone === 'actions' && <span className="tip">{tip.text}</span>}</span>
         <button ref={addButton} type="button" className="icon" aria-label="Add frame" data-tip={`Add a frame: pick a device (${keys('Mod+T')})`} disabled={!url} onClick={addFrame}>
           <Icon d={ICONS.plus} />
         </button>
@@ -220,7 +229,7 @@ export function App() {
       <main className={url ? 'viewport with-canvas' : 'viewport'}>
         {error && <p className="status error">{error}</p>}
         {url ? (
-          <Canvas ref={canvas} url={url} dark={dark} hint={tip?.zone === 'bar' ? tip.text : ''} />
+          <Canvas ref={canvas} url={url} dark={dark} />
         ) : (
           <div className="start">
             <p className="start-hint">Enter a URL to start</p>

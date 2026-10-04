@@ -157,10 +157,3 @@ button, input, select { font: inherit; color: inherit; }
 .authbar button { height: 28px; padding: 0 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); font-size: 13px; cursor: pointer; }
 .authbar button[type='submit'] { background: var(--text); border-color: var(--text); color: var(--surface); font-weight: 600; }
 
-/* Hover labels, drawn by the app inside its own rows (a native page would cover anything else). */
-.toolbar .nav { display: contents; }
-.tip-anchor { position: relative; width: 0; height: 28px; z-index: 5; margin: 0 -2px; }
-.tip { position: absolute; top: 50%; transform: translateY(-50%); padding: 5px 10px; border-radius: 6px; background: var(--text); color: var(--surface); font-size: 12px; white-space: nowrap; pointer-events: none; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18); }
-.tip-anchor.before .tip { right: 6px; }
-.tip-anchor.after .tip { left: 6px; }
-.canvas-bar .hint { flex: 1; min-width: 0; padding: 0 12px; text-align: center; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
