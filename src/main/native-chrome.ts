@@ -2,6 +2,7 @@ import { app, WebContentsView, type BrowserWindow } from 'electron'
 import type { Credentials, EngineId, InputEvent, LiveOptions, ViewRect } from '../shared/types'
 import type { Asker, Emit, PageView } from './view'
 import type { FindRequest } from '../shared/find'
+import { log } from './log'
 
 
 /** Chromium can't zoom a page out further than this. */
@@ -62,6 +63,7 @@ export class NativeChrome implements PageView {
       if (url === 'about:blank') return
       if (this.opts) this.opts = { ...this.opts, url } // Where it really is, so updates don't reload it.
       this.emit('url', url)
+      this.lastZoom = undefined // A new page starts at the default zoom.
       void this.applyEmulation() // Reapply in case navigation swapped renderer processes.
     })
     wc.on('did-navigate-in-page', (_e, url, isMainFrame) => {
@@ -116,6 +118,7 @@ export class NativeChrome implements PageView {
 
   show(): void {
     this.active = true
+    log('blink show', { view: !!this.view, rect: this.rect && this.bounds(this.rect), cut: this.cut })
     if (this.view && this.rect && !this.cut) this.view.setVisible(true)
   }
 
@@ -137,6 +140,7 @@ export class NativeChrome implements PageView {
     }
     this.opts = opts
     const view = (this.view ??= this.create())
+    log('blink open', opts.url.slice(0, 50), opts.viewport, { rect: this.rect && this.bounds(this.rect), scale: this.scale() })
     await this.blank
     await this.applyEmulation()
     if (!sameUrl || view.webContents.getURL() === 'about:blank') this.load(opts.url)
@@ -219,6 +223,7 @@ export class NativeChrome implements PageView {
           (c.x + c.width < w.width - 0.5 && r.x + r.width > c.x + c.width + 0.5) ||
           (c.y + c.height < w.height - 0.5 && r.y + r.height > c.y + c.height + 0.5)))
     if (cut !== this.cut) {
+      log('blink cut', cut, { tiny, rect: r && this.bounds(r), clip: c, window: { width: w.width, height: w.height } })
       this.cut = cut
       if (cut) void this.swapForSnapshot()
       else this.emit('snapshot', null)
@@ -252,13 +257,18 @@ export class NativeChrome implements PageView {
     return { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width * grow), height: Math.round(rect.height * grow) }
   }
 
+  private lastZoom?: number
+
   private applyZoom(): void {
     const wc = this.view?.webContents
     if (!wc || !this.rect || !this.committed || wc.isDestroyed()) return
     // Within a rounding error of 1 (window and page sizes arrive separately): stay at 1, so a
     // resize doesn't flicker the zoom.
     const scale = this.scale()
-    wc.setZoomFactor(Math.abs(scale - 1) < 0.01 ? 1 : Math.max(MIN_ZOOM, scale))
+    const zoom = Math.abs(scale - 1) < 0.01 ? 1 : Math.max(MIN_ZOOM, scale)
+    if (zoom !== this.lastZoom) log('blink zoom', zoom, 'was', wc.getZoomFactor(), wc.getURL().slice(0, 30))
+    this.lastZoom = zoom
+    wc.setZoomFactor(zoom)
   }
 
   private async applyEmulation(): Promise<void> {

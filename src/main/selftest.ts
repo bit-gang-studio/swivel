@@ -1,4 +1,6 @@
+import { readFileSync } from 'node:fs'
 import { app, type BrowserWindow } from 'electron'
+import { logFile } from './log'
 import type { EngineId } from '../shared/types'
 import { nativeEngines, type EngineHost } from './host'
 
@@ -20,6 +22,8 @@ export async function selfTest(win: BrowserWindow, host: EngineHost): Promise<vo
     const ok = results.every((r) => r.includes('dark:true width:1280 '))
     for (const r of results) if (ok && !r.endsWith('early:1280')) console.log(`SELFTEST note: brief first-visit reflow (${r})`)
     console.log(`SELFTEST ${ok ? 'PASS' : 'FAIL'} ${results.join(' | ')}`)
+    const diagnostics = logFile()
+    if (!ok && diagnostics) console.log(readFileSync(diagnostics, 'utf8'))
     app.exit(ok ? 0 : 1)
   }
   setTimeout(() => {

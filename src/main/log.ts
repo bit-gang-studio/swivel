@@ -4,6 +4,9 @@ import { app } from 'electron'
 
 let file: string | undefined
 
+/** The log file, once something has been logged (tests print it when they fail). */
+export const logFile = () => file
+
 /**
  * Diagnostics, always written to Swivel's log folder (~/Library/Logs/swivel/swivel.log on macOS;
  * started fresh each launch): what the window's views were asked to do, for when a frame stays
