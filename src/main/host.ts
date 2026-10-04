@@ -197,9 +197,15 @@ export class EngineHost {
     return this.rect
   }
 
-  /** Test hook. */
+  /** Test hook: the single-page view for an engine. */
   get(engine: EngineId): PageView | undefined {
     return this.views.get(engine)
+  }
+
+  /** Test hook: the first canvas frame's view for an engine. */
+  frameView(engine: EngineId): PageView | undefined {
+    for (const [id, frame] of this.canvas ?? []) if (frame.engine === engine) return this.views.get(canvasKey(id))
+    return undefined
   }
 
   /** Resolvers waiting for a view's next frame. */

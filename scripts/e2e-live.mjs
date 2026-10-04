@@ -1,4 +1,5 @@
-// Drives the built app: in each engine, click, type and scroll inside the live view.
+// Drives the built app: on the canvas, with one frame per engine, click, type, scroll and find in
+// each frame, leave a page that never finishes loading, and follow a link from one frame.
 // Run: npm run build && node scripts/e2e-live.mjs
 import http from 'node:http'
 import { withApp } from './app-window.mjs'
@@ -25,20 +26,19 @@ i.oninput=()=>{ if(i.value==='Hi') console.log('typed') };
 addEventListener('scroll',()=>{ if(!window.s){window.s=1;console.log('scrolled')} });
 </script></body>`)
 
-// Tests use Fill window, the default (page pixels map 1:1 to the page area), and need the console open.
-let pageWidth // Width of the page area, which Fill window uses as the viewport width.
-async function prepare(win) {
-  pageWidth = () => win.evaluate(() => Math.floor(document.querySelector('main').clientWidth))
-  await win.getByLabel('Screen size').selectOption('fill')
-  const toggle = win.getByRole('button', { name: /^Console/ })
-  if ((await toggle.getAttribute('aria-pressed')) !== 'true') await toggle.click()
-  await win.waitForSelector('.console')
-}
+// The Browsers set: one frame per engine, each 1280 wide. Console lines are tagged by engine name.
+const ENGINES = [
+  ['chromium', 'Blink'],
+  ['firefox', 'Gecko'],
+  ['webkit', 'WebKit']
+]
+const WIDTH = 1280
 
 await withApp(async ({ app, win }) => {
-  await prepare(win)
-  await win.waitForSelector('.native-box')
-
+  const go = async (url) => {
+    await win.getByLabel('Address').fill(url)
+    await win.getByLabel('Address').press('Enter')
+  }
   // Poll the console panel for a line from this engine.
   async function seen(tag, text, timeout = 20_000) {
     const end = Date.now() + timeout
@@ -49,62 +49,44 @@ await withApp(async ({ app, win }) => {
     }
     return false
   }
+  /** Run script in the first frame of an engine. */
+  const run = (engine, js) => app.evaluate((_, { engine, js }) => globalThis.swivelHost.frameView(engine).run(js), { engine, js })
+  /** The page area of an engine's frame, on screen. */
+  const frameBox = (engine) => win.locator(`.frame[data-engine="${engine}"] .frame-body`).boundingBox()
 
-  await win.getByLabel('Address').fill(PAGE)
-  await win.getByLabel('Address').press('Enter')
+  const toggle = win.getByRole('button', { name: /^Console/ })
+  if ((await toggle.getAttribute('aria-pressed')) !== 'true') await toggle.click() // Its state is remembered.
+  await win.waitForSelector('.console')
+
+  // A new window is empty; the first URL opens the canvas.
+  await go(PAGE)
+  await win.waitForSelector('.frame')
+  await win.getByRole('button', { name: 'Browsers', exact: true }).click()
+  await win.waitForSelector('.frame[data-engine="webkit"]')
+  const natives = await win.evaluate(() => window.swivel.nativeEngines)
 
   const results = []
-  for (const name of [/^Chromium$/, /^Firefox$/, /^WebKit$/]) {
-    const button = win.getByRole('group', { name: 'Browser engine' }).getByRole('button', { name })
-    const tag = await button.innerText()
-    await button.click()
+  for (const [engine, tag] of ENGINES) {
     const ready = await seen(tag, 'ready', 60_000)
     await win.waitForTimeout(500)
     let clicked, typed, scrolled
     let pointer = true // Native engines show the cursor themselves.
-    const natives = await win.evaluate(() => window.swivel.nativeEngines)
-    if (tag === 'WebKit' && natives.includes('webkit')) {
-      // Safari is a native WKWebView: input goes straight to it from macOS. Drive the page with
-      // script and check its console reaches Swivel.
-      const run = (js) => app.evaluate((_, js) => globalThis.swivelHost.get('webkit').run(js), js)
-      const width = await new Promise((resolve) => {
-        run("console.log('width:' + innerWidth)")
-        const t = setInterval(async () => {
-          const line = (await win.locator('.console').innerText()).split('\n').find((l) => l.startsWith('WebKit') && l.includes('width:'))
-          if (line) {
-            clearInterval(t)
-            resolve(Number(line.split('width:')[1]))
-          }
-        }, 250)
-      })
-      const expected = await pageWidth()
-      if (Math.abs(width - expected) > 1) console.log(`WebKit innerWidth is ${width}, expected ${expected}`)
-      await run("document.getElementById('b').click()")
-      clicked = await seen(tag, 'clicked')
-      await run("const i = document.getElementById('i'); i.value = 'Hi'; i.dispatchEvent(new Event('input'))")
-      typed = await seen(tag, 'typed')
-      await run('window.scrollBy(0, 600)')
-      scrolled = await seen(tag, 'scrolled')
-    } else if (tag === 'Chromium') {
-      // Chrome is a native view: real input goes straight to it, so inject input through
-      // Electron and check its console reaches Swivel.
-      const width = await app.evaluate(({ BrowserWindow }) =>
-        BrowserWindow.getAllWindows()[0].contentView.children[0].webContents.executeJavaScript('innerWidth')
-      )
-      const expected = await pageWidth()
-      if (Math.abs(width - expected) > 1) console.log(`Chromium innerWidth is ${width}, expected ${expected}`)
-      // Inject input the way the OS does, through Electron, in view coordinates.
-      const send = (events) =>
-        app.evaluate(async ({ BrowserWindow }, { events, expected }) => {
-          const view = BrowserWindow.getAllWindows()[0].contentView.children[0]
-          const scale = view.getBounds().width / expected
-          for (const e of events) {
-            const ev = { ...e }
-            if ('x' in ev) Object.assign(ev, { x: Math.round(ev.x * scale), y: Math.round(ev.y * scale) })
-            view.webContents.sendInputEvent(ev)
-            await new Promise((r) => setTimeout(r, 30))
-          }
-        }, { events, expected })
+
+    // Every frame lays its page out at its own width, whatever the canvas zoom.
+    await run(engine, "console.log('width:' + innerWidth)")
+    let width = NaN
+    for (let i = 0; i < 40 && Number.isNaN(width); i++) {
+      const line = (await win.locator('.console').innerText()).split('\n').find((l) => l.startsWith(tag) && l.includes('width:'))
+      if (line) width = Number(line.split('width:')[1])
+      else await win.waitForTimeout(250)
+    }
+    const sized = Math.abs(width - WIDTH) <= 1
+    if (!sized) console.log(`${tag} innerWidth is ${width}, expected ${WIDTH}`)
+
+    if (engine === 'chromium') {
+      // A native view: real input goes straight to it, so inject input through Electron, the way
+      // the OS does, at page coordinates.
+      const send = (events) => app.evaluate((_, events) => globalThis.swivelHost.frameView('chromium').testInput(events), events)
       await send([{ type: 'mouseDown', x: 400, y: 20, button: 'left', clickCount: 1 }, { type: 'mouseUp', x: 400, y: 20, button: 'left', clickCount: 1 }])
       clicked = await seen(tag, 'clicked')
       await send([
@@ -116,19 +98,29 @@ await withApp(async ({ app, win }) => {
       typed = await seen(tag, 'typed')
       await send([{ type: 'mouseWheel', x: 400, y: 300, deltaX: 0, deltaY: -600 }])
       scrolled = await seen(tag, 'scrolled')
+    } else if (natives.includes(engine)) {
+      // WebKit on macOS is a native view too: macOS delivers input to it (the real-click test
+      // covers that). Drive the page with script and check its console reaches Swivel.
+      await run(engine, "document.getElementById('b').click()")
+      clicked = await seen(tag, 'clicked')
+      await run(engine, "const i = document.getElementById('i'); i.value = 'Hi'; i.dispatchEvent(new Event('input'))")
+      typed = await seen(tag, 'typed')
+      await run(engine, 'window.scrollBy(0, 600)')
+      scrolled = await seen(tag, 'scrolled')
     } else {
-      // Streamed engines: input goes through Swivel's canvas.
-      const box = await win.locator('canvas.live').boundingBox()
-      const s = box.width / (await pageWidth())
-      await win.mouse.move(box.x + box.width / 2, box.y + 30)
+      // Input goes through Swivel: the frame's own canvas takes the mouse and keyboard.
+      const canvas = win.locator(`.frame[data-engine="${engine}"] canvas.live`)
+      const box = await canvas.boundingBox()
+      const s = box.width / WIDTH
+      await win.mouse.move(box.x + box.width / 2, box.y + 30 * s)
       let cursor = ''
       for (let i = 0; i < 20 && cursor !== 'pointer'; i++) {
         await win.waitForTimeout(150)
-        cursor = await win.locator('canvas.live').evaluate((c) => c.style.cursor)
+        cursor = await canvas.evaluate((c) => c.style.cursor)
       }
       if (cursor !== 'pointer') console.log(`${tag} cursor over button is "${cursor}", expected pointer`)
       pointer = cursor === 'pointer'
-      await win.mouse.click(box.x + box.width / 2, box.y + 20)
+      await win.mouse.click(box.x + box.width / 2, box.y + 20 * s)
       clicked = await seen(tag, 'clicked')
       await win.mouse.click(box.x + box.width / 2, box.y + 150 * s)
       await win.keyboard.press('Shift+KeyH')
@@ -139,7 +131,10 @@ await withApp(async ({ app, win }) => {
       scrolled = await seen(tag, 'scrolled')
     }
 
-    // Find in page: open it the way the menu shortcut does, search, expect exactly one match.
+    // Find in page searches the selected frame: open it the way the menu shortcut does, search,
+    // expect exactly one match.
+    const id = await win.locator(`.frame[data-engine="${engine}"]`).getAttribute('data-frame')
+    await win.evaluate((id) => window.swivel.selectFrame(id), id)
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('swivel:command', 'find'))
     await win.getByPlaceholder('Find in page').fill('click me')
     let count = ''
@@ -151,36 +146,28 @@ await withApp(async ({ app, win }) => {
     const found = count === '1/1'
     await win.getByPlaceholder('Find in page').press('Escape')
 
-    // Navigating away from a page that is still loading must not wait for it.
-    await win.getByLabel('Address').fill(SLOW)
-    await win.getByLabel('Address').press('Enter')
-    await win.waitForTimeout(1000)
-    const marker = `ready-${results.length}`
-    const t0 = Date.now()
-    await win.getByLabel('Address').fill(PAGE.replace("console.log('ready')", `console.log('${marker}')`))
-    await win.getByLabel('Address').press('Enter')
-    const escaped = await seen(tag, marker, 10_000)
-    const escapeMs = escaped ? Date.now() - t0 : -1
-
-    results.push({ engine: tag, ready, clicked, typed, scrolled, pointer, found, leftSlowPageMs: escapeMs })
+    results.push({ engine: tag, ready, sized, clicked, typed, scrolled, pointer, found })
   }
 
-  // Sync: click a link in Firefox (streamed on every OS); the other engines must follow.
-  await win.getByRole('group', { name: 'Browser engine' }).getByRole('button', { name: /^Firefox$/ }).click()
-  await win.getByLabel('Address').fill(PAGE.replace("console.log('ready')", "console.log('ready-sync')"))
-  await win.getByLabel('Address').press('Enter')
-  await seen('Firefox', 'ready-sync', 30_000)
+  // Navigating away from a page that is still loading must not wait for it, in any frame.
+  await go(SLOW)
   await win.waitForTimeout(1000)
-  const box = await win.locator('canvas.live').boundingBox()
-  await win.mouse.click(box.x + box.width / 2, box.y + 230 * (box.width / (await pageWidth())))
-  if (process.env.SWIVEL_DEBUG) console.log('sync click at canvas', JSON.stringify(box))
+  const t0 = Date.now()
+  await go(PAGE.replace("console.log('ready')", "console.log('ready-after-slow')"))
+  for (const r of results) r.leftSlowPageMs = (await seen(r.engine, 'ready-after-slow', 10_000)) ? Date.now() - t0 : -1
+
+  // Follow: click a link in the Gecko frame (input goes through Swivel on every OS); the other
+  // frames must go there too.
+  await win.waitForTimeout(1000)
+  const box = await frameBox('firefox')
+  await win.mouse.click(box.x + box.width / 2, box.y + 230 * (box.width / WIDTH))
   const followed = {}
-  for (const engine of ['Firefox', 'Chromium', 'WebKit']) followed[engine] = await seen(engine, 'page2', 20_000)
+  for (const [, tag] of ENGINES) followed[tag] = await seen(tag, 'page2', 20_000)
   console.log('followed link:', JSON.stringify(followed))
-  const syncFailed = Object.values(followed).some((ok) => !ok)
+  const followFailed = Object.values(followed).some((ok) => !ok)
 
   if (process.env.SHOT) await win.screenshot({ path: process.env.SHOT })
-  const failed = syncFailed || results.some((r) => !r.ready || !r.clicked || !r.typed || !r.scrolled || !r.pointer || !r.found || r.leftSlowPageMs < 0)
+  const failed = followFailed || results.some((r) => !r.ready || !r.sized || !r.clicked || !r.typed || !r.scrolled || !r.pointer || !r.found || r.leftSlowPageMs < 0)
   if (failed) {
     console.log('address:', await win.getByLabel('Address').inputValue())
     console.log('status:', await win.locator('.status').allInnerTexts())

@@ -4,8 +4,8 @@
 import { withApp } from './app-window.mjs'
 
 const EXPECT = {
-  Chromium: (ua) => /Chrome\/\d+\.\d+/.test(ua) && /Safari\/537\.36$/.test(ua) && !/Electron|HeadlessChrome|swivel/i.test(ua),
-  Firefox: (ua) => /Gecko\/20100101 Firefox\/\d+/.test(ua),
+  Blink: (ua) => /Chrome\/\d+\.\d+/.test(ua) && /Safari\/537\.36$/.test(ua) && !/Electron|HeadlessChrome|swivel/i.test(ua),
+  Gecko: (ua) => /Gecko\/20100101 Firefox\/\d+/.test(ua),
   WebKit: (ua) => /AppleWebKit\/60\d/.test(ua) && /Version\/\d+(\.\d+)* Safari\/60\d/.test(ua)
 }
 const page = 'data:text/html,' + encodeURIComponent("<script>console.log('ua:' + navigator.userAgent)</script>")
@@ -13,6 +13,8 @@ const page = 'data:text/html,' + encodeURIComponent("<script>console.log('ua:' +
 await withApp(async ({ win }) => {
   await win.getByLabel('Address').fill(page)
   await win.getByLabel('Address').press('Enter')
+  // The first URL opens the canvas on one engine: switch to a frame per engine.
+  await win.getByRole('button', { name: 'Browsers', exact: true }).click()
   const toggle = win.getByRole('button', { name: /^Console/ })
   if ((await toggle.getAttribute('aria-pressed')) !== 'true') await toggle.click() // Its state is remembered.
   const seen = {}

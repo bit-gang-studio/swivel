@@ -5,8 +5,8 @@ import { webkitAddon } from './native-safari'
 
 /**
  * SWIVEL_CLICKTEST=1 (macOS): real clicks, sent through the window and hit-tested by macOS like a
- * user's (test runners click inside the page and skip that). Checks each engine's page, the
- * toolbar, and every canvas frame. Prints the result and quits.
+ * user's (test runners click inside the page and skip that). Checks the bar under the canvas,
+ * every frame's page, and the toolbar. Prints the result and quits.
  */
 export async function clickTest(win: BrowserWindow, host: EngineHost): Promise<void> {
   const addon = webkitAddon as { clickAt?: (h: Buffer, x: number, y: number) => void } | null
@@ -31,7 +31,7 @@ export async function clickTest(win: BrowserWindow, host: EngineHost): Promise<v
     return app.exit(0)
   }
   // Small enough for CI screens, and active: an inactive window's first click only activates it.
-  win.setBounds({ x: 0, y: 0, width: 1000, height: 700 })
+  win.setBounds({ x: 0, y: 0, width: 1400, height: 900 }) // Wide enough that three 1280 frames stay above Chromium's 25% zoom floor.
   win.focus()
   app.focus({ steal: true })
   const click = (x: number, y: number) => addon.clickAt!(win.getNativeWindowHandle(), x, y)
@@ -57,28 +57,28 @@ export async function clickTest(win: BrowserWindow, host: EngineHost): Promise<v
   })()`)
   await sleep(4000)
 
-  // Single-page view, each engine.
-  for (const [engine, label] of [['chromium', 'Chromium'], ['firefox', 'Firefox'], ['webkit', 'WebKit']] as const) {
-    await ui(`[...document.querySelectorAll('button')].find((b) => b.textContent.trim() === '${label}').click()`)
-    await sleep(4000)
-    const r = host.pageRect
-    check(`${label} page`, !!r && (await clicked(engine, () => click(r.x + r.width / 2, r.y + r.height / 2))))
-  }
-
-  // The toolbar, over native views: a real click on the Canvas button opens the canvas.
-  const button = (await ui(`(() => { const r = document.querySelector('button[aria-label="Canvas"]').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 } })()`)) as { x: number; y: number }
-  click(button.x, button.y)
+  // The first URL opened the canvas. The bar under it, over native views: a real click on the
+  // Browsers set swaps the frames for one per engine.
+  const browsers = (await ui(`(() => { const b = [...document.querySelectorAll('.sets button')].find((b) => b.textContent.trim() === 'Browsers'); const r = b.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 } })()`)) as { x: number; y: number }
+  click(browsers.x, browsers.y)
   await sleep(12000)
-  check('toolbar (Canvas button)', await ui(`!!document.querySelector('.canvas')`))
+  check('canvas bar (Browsers set)', await ui(`document.querySelector('.sets button[aria-pressed="true"]')?.textContent.trim() === 'Browsers'`))
 
-  // Every canvas frame.
+  // Every frame's page.
   const frames = (await ui(`[...document.querySelectorAll('.frame')].map((f) => {
     const r = f.querySelector('.frame-body').getBoundingClientRect()
-    return { engine: f.querySelector('select').value, x: r.left + Math.min(r.width / 2, 100), y: r.top + Math.min(r.height / 2, 100), visible: r.right < innerWidth && r.bottom < innerHeight }
+    return { engine: f.dataset.engine, x: r.left + Math.min(r.width / 2, 100), y: r.top + Math.min(r.height / 2, 100), visible: r.right < innerWidth && r.bottom < innerHeight }
   })`)) as { engine: EngineId; x: number; y: number; visible: boolean }[]
+  check('three frames', frames.length === 3)
   for (const f of frames) {
     if (!f.visible) continue // Off the window's edge on a small screen.
-    check(`canvas ${f.engine} frame`, await clicked(f.engine, () => click(f.x, f.y)))
+    check(`${f.engine} frame`, await clicked(f.engine, () => click(f.x, f.y)))
   }
+
+  // The toolbar, over native views: a real click on Dark mode presses it.
+  const dark = (await ui(`(() => { const r = document.querySelector('button[aria-label="Dark mode"]').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 } })()`)) as { x: number; y: number }
+  click(dark.x, dark.y)
+  await sleep(1000)
+  check('toolbar (Dark mode button)', await ui(`document.querySelector('button[aria-label="Dark mode"]').getAttribute('aria-pressed') === 'true'`))
   finish()
 }

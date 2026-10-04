@@ -38,7 +38,7 @@ Streamed Firefox calls Firefox's own screenshot command directly (Playwright's w
 
 ## Tests
 
-- `scripts/e2e-live.mjs`: drives the built app in every engine. Click, type, scroll, cursor, find, leaving a page that never finishes loading, and other engines following a link.
+- `scripts/e2e-live.mjs`: on the canvas with one frame per engine: click, type, scroll, find, leave a page that never finishes loading, and follow a link from one frame.
 - `scripts/e2e-useragent.mjs`: each engine's user agent matches its real browser (sites serve different pages by it).
 - `scripts/e2e-isolation.mjs`: each window's data is separate in every engine, and Clear data wipes it.
 - `SWIVEL_SELFTEST=1 npx electron .`: checks native engines' size and dark mode with no test runner attached.

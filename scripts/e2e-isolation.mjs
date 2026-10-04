@@ -1,5 +1,5 @@
 // Each window has its own data: a cookie set in one window isn't seen in another, in any engine,
-// and Clear data wipes it.
+// and Clear data wipes it. Inside a window, a cookie set in one engine reaches the others.
 // Run: npm run build && node scripts/e2e-isolation.mjs
 import http from 'node:http'
 import { withApp } from './app-window.mjs'
@@ -13,12 +13,17 @@ const server = http.createServer((req, res) => {
   res.end(`<script>console.log('cookie${req.url}:' + document.cookie)</script>`)
 }).listen(0)
 const base = `http://127.0.0.1:${server.address().port}`
-const ENGINES = ['Chromium', 'Firefox', 'WebKit']
+// Console lines are tagged by engine name. The Browsers set has one frame per engine.
+const ENGINES = ['Blink', 'Gecko', 'WebKit']
 
 /** Which engines logged a console line containing text, within a time limit. */
 async function visit(win, url, text, ms = 30_000) {
   await win.getByLabel('Address').fill(url)
   await win.getByLabel('Address').press('Enter')
+  // The first URL opens the canvas on one engine: switch to a frame per engine.
+  const browsers = win.getByRole('button', { name: 'Browsers', exact: true })
+  await browsers.waitFor()
+  if ((await browsers.getAttribute('aria-pressed')) !== 'true') await browsers.click()
   const toggle = win.getByRole('button', { name: /^Console/ })
   if ((await toggle.getAttribute('aria-pressed')) !== 'true') await toggle.click()
   const seen = {}
@@ -41,6 +46,11 @@ const check = (label, seen, want) => {
 await withApp(async ({ app, win }) => {
   check('set in window 1', await visit(win, `${base}/set`, 'cookie set'), true)
   check('window 1 has it', await visit(win, `${base}/one`, 'cookie/one:swivel=kept'), true)
+
+  // One sign-in for every engine: a cookie that only Blink sets reaches Gecko and WebKit.
+  await app.evaluate(() => globalThis.swivelHost.frameView('chromium').run("document.cookie = 'only=blink; path=/; max-age=3600'"))
+  await win.waitForTimeout(2500)
+  check('cookie set in Blink reaches every engine', await visit(win, `${base}/shared`, 'only=blink'), true)
 
   const before = app.windows().length
   await app.evaluate(({ Menu }) => Menu.getApplicationMenu().items.find((i) => i.label === 'File').submenu.items.find((i) => i.label === 'New Window').click())

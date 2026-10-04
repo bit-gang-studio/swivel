@@ -288,6 +288,24 @@ export class NativeChrome implements PageView {
     }
   }
 
+  /** Test hook: run script in the page. */
+  run(script: string): void {
+    void this.view?.webContents.executeJavaScript(script).catch(() => {})
+  }
+
+  /** Test hook: input as the OS would send it, at page coordinates (CSS pixels of the page). */
+  async testInput(events: Record<string, unknown>[]): Promise<void> {
+    const wc = this.view?.webContents
+    if (!wc) return
+    const scale = this.scale()
+    for (const e of events) {
+      const event = { ...e }
+      if (typeof event.x === 'number' && typeof event.y === 'number') Object.assign(event, { x: Math.round(event.x * scale), y: Math.round(event.y * scale) })
+      wc.sendInputEvent(event as unknown as Electron.MouseInputEvent)
+      await new Promise((r) => setTimeout(r, 30))
+    }
+  }
+
   destroy(): void {
     clearInterval(this.refresh)
     if (!this.view) return

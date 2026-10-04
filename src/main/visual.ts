@@ -2,13 +2,13 @@ import { execFile } from 'node:child_process'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import { app, type BrowserWindow } from 'electron'
+import { app, screen, type BrowserWindow } from 'electron'
 
 const run = promisify(execFile)
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 /**
- * SWIVEL_VISUAL=<dir>: drive the real UI through every engine and size, and save real
+ * SWIVEL_VISUAL=<dir>: drive the real UI through its sets, frames and focus mode, and save real
  * screenshots of the screen (native views can't be captured from inside the app).
  * No test runner is attached, so this runs exactly the code path users get. CI uploads the
  * images for a person (or Claude) to look at. Then quits.
@@ -16,10 +16,6 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 export async function visualCheck(win: BrowserWindow, dir: string, newWindow: () => BrowserWindow): Promise<void> {
   mkdirSync(dir, { recursive: true })
   const ui = (js: string, w = win) => w.webContents.executeJavaScript(js)
-  const click = (label: string, w = win) =>
-    ui(`[...document.querySelectorAll('button')].find((b) => /^(${label})$/.test(b.textContent.trim()))?.click()`, w)
-  const size = (value: string) =>
-    ui(`(() => { const s = document.querySelector('select'); s.value = '${value}'; s.dispatchEvent(new Event('change', { bubbles: true })) })()`)
   const go = (url: string, w = win) =>
     ui(`(() => {
       const input = document.querySelector('.address input')
@@ -38,31 +34,59 @@ export async function visualCheck(win: BrowserWindow, dir: string, newWindow: ()
     }
   }
 
-  win.setBounds({ x: 0, y: 0, width: 1400, height: 900 })
-  // The first seconds, while engines (including a real Firefox window) start: nothing may flash up.
+  // As big as the screen allows, so every frame of a set can be seen in a shot.
+  const area = screen.getPrimaryDisplay().workArea
+  const full = { x: area.x, y: area.y, width: Math.min(1400, area.width), height: Math.min(900, area.height) }
+  win.setBounds(full)
+  const set = (name: string, w = win) => ui(`[...document.querySelectorAll('.sets button')].find((b) => b.textContent.trim() === '${name}')?.click()`, w)
+  const wheel = (dx: number, dy: number, ctrl = false) =>
+    ui(`(() => { const c = document.querySelector('.canvas'); const r = c.getBoundingClientRect(); c.dispatchEvent(new WheelEvent('wheel', { deltaX: ${dx}, deltaY: ${dy}, ctrlKey: ${ctrl}, clientX: r.left + 20, clientY: r.top + 20, bubbles: true, cancelable: true })) })()`)
+
+  // A new window: empty, nothing loading, nothing flashing up.
+  await sleep(2000)
+  await shot('start')
+
+  // The first URL opens the Responsive set: one engine at four sizes.
+  await go(process.env.SWIVEL_VISUAL_URL ?? 'https://en.wikipedia.org/wiki/Oscar_Piastri')
+  await sleep(10000)
+  await shot('responsive')
+
+  // The Browsers set: Blink, Gecko and WebKit side by side (a real Firefox window starts; it
+  // must not show anywhere).
+  await set('Browsers')
   for (const t of [1, 2, 3]) {
     await sleep(1000)
-    await shot(`startup-${t}s`)
+    await shot(`browsers-starting-${t}s`)
   }
-  await go(process.env.SWIVEL_VISUAL_URL ?? 'https://en.wikipedia.org/wiki/Oscar_Piastri')
-  await sleep(6000)
-  await shot('default')
-  // Resize the window in "Fill window": the page should follow without reloading.
-  win.setBounds({ x: 0, y: 0, width: 1000, height: 700 })
+  await sleep(10000)
+  await shot('browsers')
+
+  // Panned partly under the toolbar, each frame must be cut off at the canvas edge, never drawn
+  // over the toolbar.
+  await wheel(0, 120)
   await sleep(3000)
-  await shot('default-resized')
-  win.setBounds({ x: 0, y: 0, width: 1400, height: 900 })
-  await sleep(2000)
-  for (const [engine, label] of [['chromium', 'Chromium'], ['firefox', 'Firefox'], ['webkit', 'WebKit']]) {
-    await click(label)
-    for (const [value, name] of [['fill', 'fill'], ['2', 'desktop'], ['0', 'phone']] as const) {
-      await size(value)
-      await sleep(5000)
-      await shot(`${engine}-${name}`)
-    }
-    await size('fill')
+  await shot('canvas-panned')
+  await wheel(0, -120)
+  // Zoomed in, then out below 25%, where a Blink frame shows a still image of itself.
+  await wheel(0, -150, true)
+  await sleep(4000)
+  await shot('canvas-zoomed-in')
+  await wheel(0, 400, true)
+  await sleep(4000)
+  await shot('canvas-zoomed-out')
+  await ui(`[...document.querySelectorAll('.canvas-bar button')].find((b) => b.textContent.trim() === 'Fit')?.click()`)
+  await sleep(3000)
+
+  // Focus mode: one frame fills the window; the others keep running, hidden.
+  for (const engine of ['chromium', 'firefox', 'webkit']) {
+    await ui(`document.querySelector('.frame[data-engine="${engine}"] button[aria-label="Focus frame"]')?.click()`)
+    await sleep(4000)
+    await shot(`focus-${engine}`)
+    await ui(`[...document.querySelectorAll('.canvas-bar button')].find((b) => b.textContent.includes('Canvas'))?.click()`)
+    await sleep(1500)
   }
-  // Find bar, in each engine.
+
+  // Find bar, across the frames.
   win.webContents.send('swivel:command', 'find')
   await sleep(500)
   await ui(`(() => {
@@ -70,19 +94,19 @@ export async function visualCheck(win: BrowserWindow, dir: string, newWindow: ()
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'Piastri')
     input.dispatchEvent(new Event('input', { bubbles: true }))
   })()`)
-  for (const [engine, label] of [['chromium', 'Chromium'], ['firefox', 'Firefox'], ['webkit', 'WebKit']]) {
-    await click(label)
-    await sleep(5000)
-    await ui(`document.querySelector('.findbar input').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))`)
-    await sleep(1500)
-    await shot(`${engine}-find`)
-  }
-  // Minimize Swivel with Firefox shown: the hidden Firefox window must not appear (or leave a Dock
-  // thumbnail), and it must come back mirrored when Swivel is restored.
-  await click('Firefox')
-  await ui(`document.querySelector('.findbar button[aria-label="Close find"]')?.click()`)
   await sleep(3000)
-  // Mission Control shows every window; the hidden Firefox window must not be among them.
+  await shot('find')
+  await ui(`document.querySelector('.findbar button[aria-label="Close find"]')?.click()`)
+
+  // Google serves old fallback pages to browsers it doesn't recognise: each engine must get the
+  // same page its real browser does.
+  await go('https://www.google.com/')
+  await sleep(8000)
+  await shot('google')
+  await go(process.env.SWIVEL_VISUAL_URL ?? 'https://en.wikipedia.org/wiki/Oscar_Piastri')
+  await sleep(6000)
+
+  // Mission Control shows every window; the parked Firefox window must not be among them.
   if (process.platform === 'darwin') {
     await run('open', ['-a', 'Mission Control']).catch(() => {})
     await sleep(2500)
@@ -90,6 +114,7 @@ export async function visualCheck(win: BrowserWindow, dir: string, newWindow: ()
     await run('open', ['-a', 'Mission Control']).catch(() => {})
     await sleep(1500)
   }
+  // Minimize and restore Swivel: the Firefox window must not appear, and its mirror must come back.
   win.minimize()
   await sleep(2500)
   await shot('swivel-minimized')
@@ -97,7 +122,7 @@ export async function visualCheck(win: BrowserWindow, dir: string, newWindow: ()
   await sleep(3500)
   await shot('swivel-restored')
   // Move Swivel: the mirror follows, and no real Firefox window shows anywhere.
-  win.setBounds({ x: 250, y: 120, width: 1100, height: 750 })
+  win.setBounds({ x: area.x + 80, y: area.y + 60, width: full.width - 160, height: full.height - 120 })
   await sleep(3000)
   await shot('swivel-moved')
   if (process.platform === 'darwin') {
@@ -107,49 +132,17 @@ export async function visualCheck(win: BrowserWindow, dir: string, newWindow: ()
     console.log(`VISUAL firefox apps: ${nightly.length}`)
     for (const a of nightly) console.log(`VISUAL ${a.match(/"[^"]*"/)?.[0]} ${a.match(/type="[^"]*"/)?.[0] ?? a.match(/Foreground|UIElement|BackgroundOnly/)?.[0] ?? ''}`)
   }
-  // Google serves old fallback pages to browsers it doesn't recognise: each engine must get the
-  // same page its real browser does.
-  win.setBounds({ x: 0, y: 0, width: 1400, height: 900 })
-  await go('https://www.google.com/')
-  for (const [engine, label] of [['chromium', 'Chromium'], ['firefox', 'Firefox'], ['webkit', 'WebKit']]) {
-    await click(label)
-    await sleep(5000)
-    await shot(`google-${engine}`)
-  }
-  // Canvas: Chromium, Firefox and WebKit frames side by side. Panned partly under the toolbar,
-  // each must be cut off at the canvas edge, never drawn over the toolbar.
-  await go('https://en.wikipedia.org/wiki/Oscar_Piastri')
-  await sleep(2000)
-  await ui(`document.querySelector('button[aria-label="Canvas"]').click()`)
-  await sleep(12000)
-  await shot('canvas')
-  const wheel = (dx: number, dy: number, ctrl = false) =>
-    ui(`(() => { const c = document.querySelector('.canvas'); const r = c.getBoundingClientRect(); c.dispatchEvent(new WheelEvent('wheel', { deltaX: ${dx}, deltaY: ${dy}, ctrlKey: ${ctrl}, clientX: r.left + 20, clientY: r.top + 20, bubbles: true, cancelable: true })) })()`)
-  await wheel(0, 120)
-  await sleep(3000)
-  await shot('canvas-panned')
-  await wheel(0, -120)
-  await wheel(0, -150, true)
-  await sleep(4000)
-  await shot('canvas-zoomed')
-  await ui(`document.querySelector('button[aria-label="Canvas"]').click()`)
-  await sleep(4000)
-  await shot('canvas-off')
-
-  // Two windows, both on Firefox with different pages: each gets its own parked, mirrored window.
-  win.setBounds({ x: 0, y: 30, width: 510, height: 700 })
+  // Two windows, each with its own frames and data.
+  win.setBounds({ x: area.x, y: area.y, width: Math.max(900, Math.floor(full.width / 2)), height: full.height })
   const second = newWindow()
   await new Promise<void>((r) => second.webContents.once('did-finish-load', () => r()))
-  second.setBounds({ x: 514, y: 30, width: 510, height: 700 })
+  second.setBounds({ x: area.x + 60, y: area.y + 60, width: Math.max(900, Math.floor(full.width / 2)), height: full.height - 60 })
   await sleep(2000)
   await go('https://en.wikipedia.org/wiki/Lando_Norris', second)
-  await sleep(1000)
-  await click('Firefox', second)
-  await sleep(8000)
-  await shot('two-windows-firefox')
-  await click('WebKit', second)
   await sleep(3000)
-  await shot('two-windows-mixed')
+  await set('Browsers', second)
+  await sleep(12000)
+  await shot('two-windows')
   second.close()
   await sleep(2000)
   await shot('second-window-closed')
