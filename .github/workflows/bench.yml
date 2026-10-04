@@ -67,6 +67,8 @@ jobs:
         timeout-minutes: 8
         if: runner.os == 'Linux'
         run: xvfb-run -a node scripts/e2e-live.mjs
+        env:
+          SWIVEL_DEBUG: '1'
       - name: User agents match real browsers (Linux)
         timeout-minutes: 5
         if: runner.os == 'Linux'
@@ -85,6 +87,8 @@ jobs:
         timeout-minutes: 8
         if: runner.os != 'Linux'
         run: node scripts/e2e-live.mjs
+        env:
+          SWIVEL_DEBUG: '1'
       - name: Window data isolation
         timeout-minutes: 5
         if: runner.os != 'Linux'

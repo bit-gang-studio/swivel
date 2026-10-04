@@ -32,6 +32,8 @@ export async function withApp(fn, { timeoutMs = 240_000, exit = true } = {}) {
       if (!win) await new Promise((r) => setTimeout(r, 100))
     }
     if (!win) throw new Error('App window not found')
+    // A fixed size, whatever the screen: canvas frames must stay above Chromium's 25% zoom floor.
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setBounds({ x: 0, y: 0, width: 1500, height: 1000 }))
     code = (await fn({ app, win })) ?? 0
   } catch (err) {
     console.error(err)

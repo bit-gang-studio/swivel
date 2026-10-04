@@ -3,8 +3,8 @@ import type { EngineId } from '../shared/types'
 import { nativeEngines, type EngineHost } from './host'
 
 /**
- * SWIVEL_SELFTEST=1: check each native engine loads a page at the emulated size and colour
- * scheme, without a test runner attached (a runner changes how the debugger behaves).
+ * SWIVEL_SELFTEST=1: check a canvas frame in each native engine loads a page at the frame's
+ * size and colour scheme, without a test runner attached (a runner changes how the debugger behaves).
  * Prints the result and quits.
  */
 export async function selfTest(win: BrowserWindow, host: EngineHost): Promise<void> {
@@ -28,14 +28,17 @@ export async function selfTest(win: BrowserWindow, host: EngineHost): Promise<vo
   }, 60_000)
   // Let the window's UI settle first.
   await new Promise((r) => setTimeout(r, 1500))
-  // Scale 0.3125: well below 0.5, where WKWebView's page zoom stops, so clamping shows up.
-  await host.setRect({ x: 0, y: 100, width: 400, height: 250 })
   for (const engine of nativeEngines()) {
     const seen = new Promise<string>((resolve) => {
       host.onConsole = (from, text) => from === engine && text.startsWith('dark:') && resolve(text)
       setTimeout(() => resolve('no page output'), 15_000)
     })
-    await host.start({ engine: engine as EngineId, url: page + '%3C!--' + engine + '--%3E', viewport: { width: 1280, height: 800 }, colorScheme: 'dark' })
+    // One frame, 1280 wide, drawn 400 wide. Scale 0.3125: well below 0.5, where WKWebView's own
+    // page zoom stops, so clamping shows up.
+    const id = `selftest-${engine}`
+    const ready = host.setCanvas([{ id, engine: engine as EngineId, viewport: { width: 1280, height: 800 } }], { url: page + '%3C!--' + engine + '--%3E', colorScheme: 'dark' })
+    await host.setFrameRect(id, { x: 0, y: 100, width: 400, height: 250 })
+    await ready
     results.push(`${engine} ${await seen}`)
   }
   finish()
