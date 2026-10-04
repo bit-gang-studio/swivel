@@ -232,13 +232,15 @@ export const Canvas = forwardRef<CanvasHandle, { url: string; dark: boolean }>(f
     if (s && view) setView({ ...view, panX: s.panX + e.clientX - s.x, panY: s.panY + e.clientY - s.y })
   }
 
-  // Scroll pans; pinch (ctrlKey) or Cmd/Ctrl+scroll zooms around the pointer. Over a native page
-  // the page itself scrolls; this only sees the background.
+  // Scroll pans; pinch (ctrlKey) or Cmd/Ctrl+scroll zooms around the pointer. Over a page, the
+  // page itself scrolls.
   const inFocus = !!focusedFrame
   useEffect(() => {
     const el = area.current
     if (!el || inFocus) return
     const onWheel = (e: WheelEvent) => {
+      // Inside a frame's page the scroll belongs to the page, not the canvas.
+      if ((e.target as Element).closest?.('.frame-body')) return
       e.preventDefault()
       setView((v) => {
         if (!v) return v
