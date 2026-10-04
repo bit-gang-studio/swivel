@@ -6,6 +6,8 @@ const api = {
   platform: process.platform,
   /** Engines drawn natively in the window rather than streamed. */
   nativeEngines: ipcRenderer.sendSync('swivel:native-engines') as EngineId[],
+  /** Each engine's version, as its browser numbers it; empty when unknown. */
+  engineVersions: ipcRenderer.sendSync('swivel:engine-versions') as Record<EngineId, string>,
   start: (opts: LiveOptions): Promise<void> => ipcRenderer.invoke('swivel:start', opts),
   navigate: (url: string): Promise<void> => ipcRenderer.invoke('swivel:navigate', url),
   history: (action: 'back' | 'forward' | 'reload'): Promise<void> => ipcRenderer.invoke('swivel:history', action),

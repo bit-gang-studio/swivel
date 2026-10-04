@@ -449,7 +449,7 @@ function Frame({ frame, zoom, left, top, clip, selected, onSelect, onChange, onF
   return (
     <div className={selected ? 'frame selected' : 'frame'} data-frame={frame.id} data-engine={frame.engine} style={{ left, top: top - HEADER, width: Math.max(width, 150) }}>
       <header onPointerDown={start('move')} onPointerMove={move} onPointerUp={end} onDoubleClick={(e) => !(e.target as HTMLElement).closest('select, button, input') && onFocus()}>
-        <select aria-label="Frame engine" title={engineHint(frame.engine, window.swivel.platform)} value={frame.engine} onChange={(e) => onChange({ engine: e.target.value as EngineId })}>
+        <select aria-label="Frame engine" title={engineHint(frame.engine, window.swivel.platform, window.swivel.engineVersions[frame.engine])} value={frame.engine} onChange={(e) => onChange({ engine: e.target.value as EngineId })}>
           {ENGINES.map((e) => (
             <option key={e} value={e}>
               {engineWithBrowser(e)}

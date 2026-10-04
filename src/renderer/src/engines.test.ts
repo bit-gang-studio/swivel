@@ -18,4 +18,11 @@ describe('engine names', () => {
     expect(engineHint('webkit', 'darwin')).toContain("Apple's own WebKit")
     expect(engineHint('webkit', 'linux')).toContain('Playwright')
   })
+
+  it('says which browser version the engine matches, when known', () => {
+    expect(engineHint('chromium', 'darwin', '152')).toMatch(/^Blink, as in Chrome 152: /)
+    expect(engineHint('firefox', 'darwin', '155')).toMatch(/^Gecko, as in Firefox 155: /)
+    expect(engineHint('webkit', 'darwin', '18.6')).toMatch(/^WebKit, as in Safari 18\.6: /)
+    expect(engineHint('firefox', 'darwin')).toMatch(/^Gecko: /)
+  })
 })

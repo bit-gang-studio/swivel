@@ -1,4 +1,8 @@
+import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { dirname, join } from 'node:path'
 import { dialog, session, type BrowserWindow } from 'electron'
 import type { FindRequest } from '../shared/find'
 import type { CanvasFrame, Credentials, EngineId, InputEvent, LiveOptions, ViewEvents, ViewRect, Viewport } from '../shared/types'
@@ -14,6 +18,33 @@ const ENGINES: EngineId[] = ['chromium', 'firefox', 'webkit']
 /** Engines drawn natively in the window. Everything else is streamed. */
 export function nativeEngines(): EngineId[] {
   return webkitAddon ? ['chromium', 'webkit'] : ['chromium']
+}
+
+/**
+ * The version of each engine Swivel runs, as its browser numbers it (Chrome 152, Firefox 155,
+ * Safari 18.6), for the UI to show what a page is being tested against.
+ */
+export function engineVersions(): Record<EngineId, string> {
+  const versions: Record<EngineId, string> = { chromium: process.versions.chrome?.split('.')[0] ?? '', firefox: '', webkit: '' }
+  try {
+    const require = createRequire(import.meta.url)
+    const file = join(dirname(require.resolve('playwright-core/package.json')), 'browsers.json')
+    const browsers = (JSON.parse(readFileSync(file, 'utf8')) as { browsers: { name: string; browserVersion?: string }[] }).browsers
+    const of = (name: string) => browsers.find((b) => b.name === name)?.browserVersion ?? ''
+    versions.firefox = of('firefox').replace(/\.0$/, '')
+    versions.webkit = of('webkit')
+  } catch {
+    // Unknown: the UI just leaves the number out.
+  }
+  // WebKit on macOS is Apple's own, the one the installed Safari uses.
+  if (webkitAddon) {
+    try {
+      versions.webkit = execFileSync('/usr/bin/defaults', ['read', '/Applications/Safari.app/Contents/Info', 'CFBundleShortVersionString'], { encoding: 'utf8', timeout: 2000 }).trim()
+    } catch {
+      versions.webkit = ''
+    }
+  }
+  return versions
 }
 
 /** Engines that run in Playwright, for prewarming. */
