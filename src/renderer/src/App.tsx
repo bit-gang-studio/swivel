@@ -36,6 +36,8 @@ export function App() {
   const [dark, setDark] = useState(false)
   /** Scroll, click or type in one frame and the others repeat it. */
   const [sync, setSync] = useState(true)
+  /** The hover label for the control under the pointer, and where it shows. */
+  const [tip, setTip] = useState<{ text: string; zone: 'nav' | 'actions' | 'bar' } | null>(null)
   const canvas = useRef<CanvasHandle>(null)
   const addButton = useRef<HTMLButtonElement>(null)
   const [logs, setLogs] = useState<ConsoleEntry[]>([])
@@ -129,17 +131,32 @@ export function App() {
   }
 
   return (
-    <div className="app">
+    <div
+      className="app"
+      // Hover labels are drawn by the app, in its own rows: a system tooltip, or a label that drops
+      // below the toolbar, would be covered by a native page under it.
+      onMouseOver={(e) => {
+        const el = (e.target as Element).closest('[data-tip]')
+        const text = el?.getAttribute('data-tip')
+        if (!el || !text) return setTip(null)
+        setTip({ text, zone: el.closest('.toolbar') ? (el.closest('.nav') ? 'nav' : 'actions') : 'bar' })
+      }}
+      onMouseOut={(e) => !e.relatedTarget && setTip(null)} // Onto a native page, or out of the window.
+      onMouseLeave={() => setTip(null)}
+    >
       <form className="toolbar" onSubmit={onSubmit}>
-        <button type="button" className="icon" aria-label="Back" title={`Back (${keys(mac ? 'Mod+[' : 'Alt+Left')})`} onClick={() => void window.swivel.history('back')}>
+        <span className="nav">
+        <button type="button" className="icon" aria-label="Back" data-tip={`Back (${keys(mac ? 'Mod+[' : 'Alt+Left')})`} onClick={() => void window.swivel.history('back')}>
           <Icon d={ICONS.back} />
         </button>
-        <button type="button" className="icon" aria-label="Forward" title={`Forward (${keys(mac ? 'Mod+]' : 'Alt+Right')})`} onClick={() => void window.swivel.history('forward')}>
+        <button type="button" className="icon" aria-label="Forward" data-tip={`Forward (${keys(mac ? 'Mod+]' : 'Alt+Right')})`} onClick={() => void window.swivel.history('forward')}>
           <Icon d={ICONS.forward} />
         </button>
-        <button type="button" className="icon" aria-label="Reload" title={`Reload every frame (${keys('Mod+R')})`} onClick={() => void window.swivel.history('reload')}>
+        <button type="button" className="icon" aria-label="Reload" data-tip={`Reload every frame (${keys('Mod+R')})`} onClick={() => void window.swivel.history('reload')}>
           <Icon d={ICONS.reload} />
         </button>
+        </span>
+        <span className="tip-anchor after">{tip?.zone === 'nav' && <span className="tip">{tip.text}</span>}</span>
         <label className="address">
           <span className="sr-only">Address</span>
           <input
@@ -156,14 +173,15 @@ export function App() {
             placeholder="Enter a URL"
           />
         </label>
-        <button ref={addButton} type="button" className="icon" aria-label="Add frame" title={`Add a frame: pick a device (${keys('Mod+T')})`} disabled={!url} onClick={addFrame}>
+        <span className="tip-anchor before">{tip?.zone === 'actions' && <span className="tip">{tip.text}</span>}</span>
+        <button ref={addButton} type="button" className="icon" aria-label="Add frame" data-tip={`Add a frame: pick a device (${keys('Mod+T')})`} disabled={!url} onClick={addFrame}>
           <Icon d={ICONS.plus} />
         </button>
         <button
           type="button"
           className="icon"
           aria-label="Sync frames"
-          title="Sync: scroll, click or type in one frame and the others repeat it"
+          data-tip="Sync: scroll, click or type in one frame and the others repeat it"
           aria-pressed={sync}
           onClick={() => {
             setSync(!sync)
@@ -172,10 +190,10 @@ export function App() {
         >
           <Icon d={ICONS.sync} />
         </button>
-        <button type="button" className="icon" aria-label="Dark mode" title={`Dark mode: show pages in their dark colour scheme (${keys('Shift+Mod+D')})`} aria-pressed={dark} onClick={() => setDark(!dark)}>
+        <button type="button" className="icon" aria-label="Dark mode" data-tip={`Dark mode: show pages in their dark colour scheme (${keys('Shift+Mod+D')})`} aria-pressed={dark} onClick={() => setDark(!dark)}>
           <Icon d={ICONS.moon} />
         </button>
-        <button type="button" className="icon console-toggle" aria-label="Console" title={`Console: messages and errors from every frame (${keys(mac ? 'Alt+Mod+J' : 'Ctrl+Shift+J')})`} aria-pressed={consoleOpen} onClick={toggleConsole}>
+        <button type="button" className="icon console-toggle" aria-label="Console" data-tip={`Console: messages and errors from every frame (${keys(mac ? 'Alt+Mod+J' : 'Ctrl+Shift+J')})`} aria-pressed={consoleOpen} onClick={toggleConsole}>
           <Icon d={ICONS.console} />
           {unseenErrors > 0 && <span className="badge" aria-label={`${unseenErrors} new errors`}>{unseenErrors > 99 ? '99+' : unseenErrors}</span>}
         </button>
@@ -184,7 +202,7 @@ export function App() {
           type="button"
           className="icon danger"
           aria-label="Clear data"
-          title="Clear data: wipe this window's cookies, storage and cache in every engine, and reload"
+          data-tip="Clear data: wipe this window's cookies, storage and cache in every engine, and reload"
           disabled={!url}
           onClick={() => {
             setError(null)
@@ -202,7 +220,7 @@ export function App() {
       <main className={url ? 'viewport with-canvas' : 'viewport'}>
         {error && <p className="status error">{error}</p>}
         {url ? (
-          <Canvas ref={canvas} url={url} dark={dark} />
+          <Canvas ref={canvas} url={url} dark={dark} hint={tip?.zone === 'bar' ? tip.text : ''} />
         ) : (
           <div className="start">
             <p className="start-hint">Enter a URL to start</p>

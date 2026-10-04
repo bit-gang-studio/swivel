@@ -69,7 +69,7 @@ export interface CanvasHandle {
  *   breakpoints), or type a size. Double-click the header to focus it; the others keep running.
  * - Sets: saved groups of frames (engines and sizes), switched from the bar below.
  */
-export const Canvas = forwardRef<CanvasHandle, { url: string; dark: boolean }>(function Canvas({ url, dark }, ref) {
+export const Canvas = forwardRef<CanvasHandle, { url: string; dark: boolean; hint: string }>(function Canvas({ url, dark, hint }, ref) {
   const area = useRef<HTMLDivElement>(null)
   const [frames, setFrames] = useState<Placed[]>(() => inRow(BUILT_IN_SETS[0].frames))
   /** The set the frames came from, until they're changed. */
@@ -291,16 +291,16 @@ export const Canvas = forwardRef<CanvasHandle, { url: string; dark: boolean }>(f
       <div className="canvas-bar">
         {focusedFrame ? (
           <>
-            <button type="button" className="pill" title="Back to the canvas (Esc, or Cmd/Ctrl+Enter)" onClick={() => setFocused(null)}>
+            <button type="button" className="pill" data-tip="Back to the canvas (Esc, or Cmd/Ctrl+Enter)" onClick={() => setFocused(null)}>
               <Icon d={ICONS.grid} size={13} /> Canvas
             </button>
             <span className="muted">
               Frame {frames.indexOf(focusedFrame) + 1} of {frames.length}
             </span>
-            <button type="button" className="pill round" aria-label="Previous frame" title="Previous frame" onClick={() => stepFocus(-1)}>
+            <button type="button" className="pill round" aria-label="Previous frame" data-tip="Previous frame" onClick={() => stepFocus(-1)}>
               <Icon d={ICONS.back} size={13} />
             </button>
-            <button type="button" className="pill round" aria-label="Next frame" title="Next frame" onClick={() => stepFocus(1)}>
+            <button type="button" className="pill round" aria-label="Next frame" data-tip="Next frame" onClick={() => stepFocus(1)}>
               <Icon d={ICONS.forward} size={13} />
             </button>
           </>
@@ -308,18 +308,18 @@ export const Canvas = forwardRef<CanvasHandle, { url: string; dark: boolean }>(f
           <div className="sets" role="group" aria-label="Frame sets">
             {sets.map((s) => (
               <span key={s.name} className="set">
-                <button type="button" aria-pressed={setName === s.name} title={`${s.name}: ${s.frames.map((f) => `${engineLabel(f.engine)} ${f.viewport.width}`).join(', ')}`} onClick={() => applySet(s)}>
+                <button type="button" aria-pressed={setName === s.name} data-tip={`${s.name}: ${s.frames.map((f) => `${engineLabel(f.engine)} ${f.viewport.width}`).join(', ')}`} onClick={() => applySet(s)}>
                   {s.name}
                 </button>
                 {!s.builtIn && (
-                  <button type="button" className="remove" aria-label={`Delete set ${s.name}`} title={`Delete the set "${s.name}"`} onClick={() => deleteSet(s.name)}>
+                  <button type="button" className="remove" aria-label={`Delete set ${s.name}`} data-tip={`Delete the set "${s.name}"`} onClick={() => deleteSet(s.name)}>
                     ×
                   </button>
                 )}
               </span>
             ))}
             {naming === null ? (
-              <button type="button" className="save" title="Save these frames (engines and sizes) as a set" disabled={!frames.length} onClick={() => setNaming('')}>
+              <button type="button" className="save" data-tip="Save these frames (engines and sizes) as a set" disabled={!frames.length} onClick={() => setNaming('')}>
                 Save set…
               </button>
             ) : (
@@ -338,20 +338,23 @@ export const Canvas = forwardRef<CanvasHandle, { url: string; dark: boolean }>(f
             )}
           </div>
         )}
-        <span className="spacer" />
+        {/* What the control under the pointer does (frames and this bar): a label beside it could be covered by a page. */}
+        <span className="hint" aria-live="polite">
+          {hint}
+        </span>
         {shown && !focusedFrame && (
           <div className="zoomer" role="group" aria-label="Zoom">
-            <button type="button" aria-label="Zoom out" title="Zoom out" onClick={() => zoomTo(shown.zoom - 0.1)}>
+            <button type="button" aria-label="Zoom out" data-tip="Zoom out" onClick={() => zoomTo(shown.zoom - 0.1)}>
               −
             </button>
             <span className="zoom">{Math.round(shown.zoom * 100)}%</span>
-            <button type="button" aria-label="Zoom in" title="Zoom in" onClick={() => zoomTo(shown.zoom + 0.1)}>
+            <button type="button" aria-label="Zoom in" data-tip="Zoom in" onClick={() => zoomTo(shown.zoom + 0.1)}>
               +
             </button>
-            <button type="button" title="Fit every frame in the window (Cmd/Ctrl+0)" onClick={() => areaBox && setView(fit(frames, areaBox))}>
+            <button type="button" data-tip="Fit every frame in the window (Cmd/Ctrl+0)" onClick={() => areaBox && setView(fit(frames, areaBox))}>
               Fit
             </button>
-            <button type="button" title="Line the frames up in a row" onClick={tidy}>
+            <button type="button" data-tip="Line the frames up in a row" onClick={tidy}>
               Tidy
             </button>
           </div>
@@ -449,7 +452,7 @@ function Frame({ frame, zoom, left, top, clip, selected, onSelect, onChange, onF
   return (
     <div className={selected ? 'frame selected' : 'frame'} data-frame={frame.id} data-engine={frame.engine} style={{ left, top: top - HEADER, width }}>
       <header onPointerDown={start('move')} onPointerMove={move} onPointerUp={end} onDoubleClick={(e) => !(e.target as HTMLElement).closest('select, button, input') && onFocus()}>
-        <select aria-label="Frame engine" title={engineHint(frame.engine, window.swivel.platform, window.swivel.engineVersions[frame.engine])} value={frame.engine} onChange={(e) => onChange({ engine: e.target.value as EngineId })}>
+        <select aria-label="Frame engine" data-tip={engineHint(frame.engine, window.swivel.platform, window.swivel.engineVersions[frame.engine])} value={frame.engine} onChange={(e) => onChange({ engine: e.target.value as EngineId })}>
           {ENGINES.map((e) => (
             <option key={e} value={e}>
               {engineWithBrowser(e)}
@@ -463,18 +466,18 @@ function Frame({ frame, zoom, left, top, clip, selected, onSelect, onChange, onF
             <input aria-label="Height" inputMode="numeric" value={typing.height} onFocus={(e) => e.target.select()} onChange={(e) => setTyping({ ...typing, height: e.target.value.replace(/\D/g, '') })} onKeyDown={sizeKeys} />
           </span>
         ) : (
-          <button type="button" className={resizing?.snapped ? 'size snapped' : 'size'} title="Type a size (width × height)" onClick={() => setTyping({ width: String(frame.viewport.width), height: String(frame.viewport.height) })}>
+          <button type="button" className={resizing?.snapped ? 'size snapped' : 'size'} data-tip="Type a size (width × height)" onClick={() => setTyping({ width: String(frame.viewport.width), height: String(frame.viewport.height) })}>
             {size.width} × {size.height}
           </button>
         )}
         <span className="spacer" />
-        <button type="button" aria-label="Rotate" title="Rotate: swap width and height" onClick={() => onChange({ viewport: { width: frame.viewport.height, height: frame.viewport.width } })}>
+        <button type="button" aria-label="Rotate" data-tip="Rotate: swap width and height" onClick={() => onChange({ viewport: { width: frame.viewport.height, height: frame.viewport.width } })}>
           <Icon d={ICONS.rotate} size={13} />
         </button>
-        <button type="button" aria-label="Focus frame" title="Focus: fill the window with this frame (double-click the header, or Cmd/Ctrl+Enter)" onClick={onFocus}>
+        <button type="button" aria-label="Focus frame" data-tip="Focus: fill the window with this frame (double-click the header, or Cmd/Ctrl+Enter)" onClick={onFocus}>
           <Icon d={ICONS.focus} size={13} />
         </button>
-        <button type="button" aria-label="Close frame" title="Close frame" onClick={onClose}>
+        <button type="button" aria-label="Close frame" data-tip="Close frame" onClick={onClose}>
           <Icon d={ICONS.close} size={13} />
         </button>
       </header>
@@ -486,9 +489,9 @@ function Frame({ frame, zoom, left, top, clip, selected, onSelect, onChange, onF
       </div>
       {resizing && <div className={resizing.snapped ? 'frame-resize-outline snapped' : 'frame-resize-outline'} style={{ top: HEADER, width: resizing.width * zoom, height: resizing.height * zoom }} />}
       {/* Handles sit just outside the page: a native page draws over anything inside it. */}
-      <div className="frame-edge e" title="Drag to change the width" onPointerDown={start('e')} onPointerMove={move} onPointerUp={end} style={{ top: HEADER, left: width, height }} />
-      <div className="frame-edge s" title="Drag to change the height" onPointerDown={start('s')} onPointerMove={move} onPointerUp={end} style={{ top: HEADER + height, left: 0, width }} />
-      <div className="frame-handle" title="Drag to resize" onPointerDown={start('se')} onPointerMove={move} onPointerUp={end} style={{ top: HEADER + height, left: width }} />
+      <div className="frame-edge e" data-tip="Drag to change the width" onPointerDown={start('e')} onPointerMove={move} onPointerUp={end} style={{ top: HEADER, left: width, height }} />
+      <div className="frame-edge s" data-tip="Drag to change the height" onPointerDown={start('s')} onPointerMove={move} onPointerUp={end} style={{ top: HEADER + height, left: 0, width }} />
+      <div className="frame-handle" data-tip="Drag to resize" onPointerDown={start('se')} onPointerMove={move} onPointerUp={end} style={{ top: HEADER + height, left: width }} />
     </div>
   )
 }
