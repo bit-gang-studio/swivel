@@ -162,6 +162,20 @@ await withApp(async ({ app, win }) => {
   await go(PAGE.replace("console.log('ready')", "console.log('ready-after-slow')"))
   for (const r of results) r.leftSlowPageMs = (await seen(r.engine, 'ready-after-slow', 10_000)) ? Date.now() - t0 : -1
 
+  // One page filling the window, like a normal browser: the toolbar's Canvas toggle shows the
+  // first frame alone at the window's size, and puts it back at its own size after.
+  const canvasToggle = win.getByRole('button', { name: 'Canvas', exact: true })
+  await canvasToggle.click()
+  await win.waitForTimeout(1500)
+  const areaWidth = await win.evaluate(() => Math.floor(document.querySelector('.canvas').clientWidth))
+  await run('chromium', "console.log('fill-width:' + innerWidth)")
+  const filled = await seen('Blink', `fill-width:${areaWidth}`, 5000)
+  await canvasToggle.click()
+  await win.waitForTimeout(1500)
+  await run('chromium', "console.log('restored-width:' + innerWidth)")
+  const restored = await seen('Blink', `restored-width:${WIDTH}`, 5000)
+  if (!filled || !restored) console.log(`single page: filled the window (${areaWidth} wide) ${filled}, back to ${WIDTH} wide ${restored}`)
+
   // Sync: a click, typing and a scroll in the Blink frame are repeated in the other frames.
   await sync.click()
   const marked = PAGE.replace("console.log('ready')", "console.log('sync-ready')").replaceAll("'clicked'", "'sync-clicked'").replaceAll("'typed'", "'sync-typed'")
@@ -194,7 +208,7 @@ await withApp(async ({ app, win }) => {
   const followFailed = Object.values(followed).some((ok) => !ok)
 
   if (process.env.SHOT) await win.screenshot({ path: process.env.SHOT })
-  const failed = followFailed || results.some((r) => !r.ready || !r.sized || !r.clicked || !r.typed || !r.scrolled || !r.pointer || !r.found || !r.synced || r.leftSlowPageMs < 0)
+  const failed = followFailed || !filled || !restored || results.some((r) => !r.ready || !r.sized || !r.clicked || !r.typed || !r.scrolled || !r.pointer || !r.found || !r.synced || r.leftSlowPageMs < 0)
   if (failed) {
     console.log('address:', await win.getByLabel('Address').inputValue())
     console.log('status:', await win.locator('.status').allInnerTexts())

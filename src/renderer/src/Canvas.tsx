@@ -68,8 +68,10 @@ export interface CanvasHandle {
  * - A frame: drag its header to move it, its edges or corner to resize it (widths snap to common
  *   breakpoints), or type a size. Double-click the header to focus it; the others keep running.
  * - Sets: saved groups of frames (engines and sizes), switched from the bar below.
+ * - One frame alone (focus): it fills the window and follows its size, like a normal browser, or
+ *   shows at its own size. The other frames keep running.
  */
-export const Canvas = forwardRef<CanvasHandle, { url: string; dark: boolean }>(function Canvas({ url, dark }, ref) {
+export const Canvas = forwardRef<CanvasHandle, { url: string; dark: boolean; onSingle?: (single: boolean) => void }>(function Canvas({ url, dark, onSingle }, ref) {
   const area = useRef<HTMLDivElement>(null)
   const [frames, setFrames] = useState<Placed[]>(() => inRow(BUILT_IN_SETS[0].frames))
   /** The set the frames came from, until they're changed. */
@@ -80,6 +82,9 @@ export const Canvas = forwardRef<CanvasHandle, { url: string; dark: boolean }>(f
   const [selected, setSelected] = useState<string | null>(null)
   const [focused, setFocused] = useState<string | null>(null)
   const [naming, setNaming] = useState<string | null>(null)
+  /** A frame shown alone fills the window (like a normal browser), or keeps its own size. */
+  const [fill, setFill] = useState(true)
+  const [fillSize, setFillSize] = useState<Viewport | null>(null)
 
   // Measure the canvas area; fit the frames whenever there's no view yet.
   useLayoutEffect(() => {
@@ -99,18 +104,34 @@ export const Canvas = forwardRef<CanvasHandle, { url: string; dark: boolean }>(f
     if (areaBox && !view) setView(fit(frames, areaBox))
   }, [areaBox, view, frames])
 
+  const focusedFrame = focused ? frames.find((f) => f.id === focused) : undefined
+  useEffect(() => onSingle?.(!!focusedFrame), [!!focusedFrame]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Filling the window, the frame's page is the size of the area under its header. A native
+  // engine follows a window resize live; one that costs a browser round trip waits for it to settle.
+  const fillEngine = focusedFrame && fill ? focusedFrame.engine : undefined
+  useEffect(() => {
+    if (!fillEngine || !areaBox) return
+    const size = { width: Math.max(MIN_SIZE, Math.floor(areaBox.width)), height: Math.max(MIN_SIZE, Math.floor(areaBox.height - HEADER)) }
+    if (!fillSize || window.swivel.nativeEngines.includes(fillEngine)) return setFillSize(size)
+    const timer = setTimeout(() => setFillSize(size), 120)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fillEngine, areaBox?.width, areaBox?.height])
+  const filling = focusedFrame && fill && fillSize ? { ...focusedFrame, viewport: fillSize } : undefined
+
   // The main process only needs to hear when frames, engines or sizes change, not positions.
-  const shape = frames.map((f) => `${f.id}:${f.engine}:${f.viewport.width}x${f.viewport.height}`).join(',')
+  const specs = frames.map((f) => (filling && f.id === filling.id ? filling : f))
+  const shape = specs.map((f) => `${f.id}:${f.engine}:${f.viewport.width}x${f.viewport.height}`).join(',')
   useEffect(() => {
     void window.swivel.setCanvas(
-      frames.map(({ id, engine, viewport }) => ({ id, engine, viewport })),
+      specs.map(({ id, engine, viewport }) => ({ id, engine, viewport })),
       { url, colorScheme: dark ? 'dark' : 'light' }
     )
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shape])
 
   // Focus mode shows one frame; the others keep running, hidden.
-  const focusedFrame = focused ? frames.find((f) => f.id === focused) : undefined
   useEffect(() => {
     for (const f of frames) window.swivel.setFrameVisible(f.id, !focusedFrame || f.id === focusedFrame.id)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -256,9 +277,9 @@ export const Canvas = forwardRef<CanvasHandle, { url: string; dark: boolean }>(f
     return () => el.removeEventListener('wheel', onWheel)
   }, [inFocus])
 
-  // In focus mode the one frame is fitted to the area (at most 100%).
-  const shown = focusedFrame && areaBox ? fit([focusedFrame], areaBox) : view
-  const visible = focusedFrame ? [focusedFrame] : frames
+  // One frame alone: filling the area under its header, or fitted to it at its own size.
+  const shown = filling ? { zoom: 1, panX: -filling.x, panY: HEADER - filling.y } : focusedFrame && areaBox ? fit([focusedFrame], areaBox) : view
+  const visible = filling ? [filling] : focusedFrame ? [focusedFrame] : frames
   const sets = [...BUILT_IN_SETS, ...userSets]
 
   return (
@@ -275,6 +296,7 @@ export const Canvas = forwardRef<CanvasHandle, { url: string; dark: boolean }>(f
               top={shown.panY + f.y * shown.zoom}
               clip={areaBox}
               selected={selected === f.id}
+              filling={!!filling}
               onSelect={() => setSelected(f.id)}
               onChange={(c) => change(f.id, c)}
               onFocus={() => toggleFocus(f.id)}
@@ -302,6 +324,9 @@ export const Canvas = forwardRef<CanvasHandle, { url: string; dark: boolean }>(f
             </button>
             <button type="button" className="pill round" aria-label="Next frame" data-tip="Next frame" onClick={() => stepFocus(1)}>
               <Icon d={ICONS.forward} size={13} />
+            </button>
+            <button type="button" aria-pressed={fill} data-tip="Fill window: the page takes the window's size, like a normal browser. Off: the frame keeps its own size." onClick={() => setFill(!fill)}>
+              Fill window
             </button>
           </>
         ) : (
@@ -356,7 +381,11 @@ export const Canvas = forwardRef<CanvasHandle, { url: string; dark: boolean }>(f
             </button>
           </div>
         )}
-        {shown && focusedFrame && <span className="zoom">{Math.round(shown.zoom * 100)}%</span>}
+        {shown && focusedFrame && (
+          <span className="zoom">
+            {filling ? `${filling.viewport.width} × ${filling.viewport.height}` : `${Math.round(shown.zoom * 100)}%`}
+          </span>
+        )}
       </div>
     </div>
   )
@@ -370,6 +399,8 @@ interface FrameProps {
   top: number
   clip: DOMRect
   selected: boolean
+  /** Filling the window: its size is the window's, so it can't be typed, dragged or rotated. */
+  filling: boolean
   onSelect: () => void
   onChange: (change: Partial<Placed>) => void
   onFocus: () => void
@@ -378,7 +409,7 @@ interface FrameProps {
 
 type Drag = { x: number; y: number; fx: number; fy: number; vw: number; vh: number; mode: 'move' | 'e' | 's' | 'se' }
 
-function Frame({ frame, zoom, left, top, clip, selected, onSelect, onChange, onFocus, onClose }: FrameProps) {
+function Frame({ frame, zoom, left, top, clip, selected, filling, onSelect, onChange, onFocus, onClose }: FrameProps) {
   const body = useRef<HTMLDivElement>(null)
   const [snapshot, setSnapshot] = useState<string | null>(null)
   /** The size being dragged to; applied on release. */
@@ -408,7 +439,7 @@ function Frame({ frame, zoom, left, top, clip, selected, onSelect, onChange, onF
   // Move by dragging the header; resize from the right edge, bottom edge or corner.
   const drag = useRef<Drag | null>(null)
   const start = (mode: Drag['mode']) => (e: ReactPointerEvent<HTMLElement>) => {
-    if (mode === 'move' && (e.target as HTMLElement).closest('select, button, input')) return
+    if (mode === 'move' && (filling || (e.target as HTMLElement).closest('select, button, input'))) return
     e.stopPropagation()
     onSelect()
     e.currentTarget.setPointerCapture(e.pointerId)
@@ -447,7 +478,7 @@ function Frame({ frame, zoom, left, top, clip, selected, onSelect, onChange, onF
 
   const size = resizing ?? frame.viewport
   return (
-    <div className={selected ? 'frame selected' : 'frame'} data-frame={frame.id} data-engine={frame.engine} style={{ left, top: top - HEADER, width }}>
+    <div className={['frame', selected && !filling && 'selected', filling && 'filling'].filter(Boolean).join(' ')} data-frame={frame.id} data-engine={frame.engine} style={{ left, top: top - HEADER, width }}>
       <header onPointerDown={start('move')} onPointerMove={move} onPointerUp={end} onDoubleClick={(e) => !(e.target as HTMLElement).closest('select, button, input') && onFocus()}>
         <select aria-label="Frame engine" data-tip={engineHint(frame.engine, window.swivel.platform, window.swivel.engineVersions[frame.engine])} value={frame.engine} onChange={(e) => onChange({ engine: e.target.value as EngineId })}>
           {ENGINES.map((e) => (
@@ -471,7 +502,7 @@ function Frame({ frame, zoom, left, top, clip, selected, onSelect, onChange, onF
         <button type="button" aria-label="Rotate" data-tip="Rotate: swap width and height" onClick={() => onChange({ viewport: { width: frame.viewport.height, height: frame.viewport.width } })}>
           <Icon d={ICONS.rotate} size={13} />
         </button>
-        <button type="button" aria-label="Focus frame" data-tip="Focus: fill the window with this frame (double-click the header, or Cmd/Ctrl+Enter)" onClick={onFocus}>
+        <button type="button" aria-label="Focus frame" data-tip={filling ? 'Back to the canvas (Cmd/Ctrl+Enter)' : 'Show this frame alone, filling the window like a normal browser (double-click the header, or Cmd/Ctrl+Enter)'} onClick={onFocus}>
           <Icon d={ICONS.focus} size={13} />
         </button>
         <button type="button" aria-label="Close frame" data-tip="Close frame" onClick={onClose}>

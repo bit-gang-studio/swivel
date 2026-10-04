@@ -36,6 +36,8 @@ export function App() {
   const [dark, setDark] = useState(false)
   /** Scroll, click or type in one frame and the others repeat it. */
   const [sync, setSync] = useState(true)
+  /** One frame alone, filling the window like a normal browser, rather than the canvas. */
+  const [single, setSingle] = useState(false)
   /** The control whose hover label is up (or about to be). */
   const tipped = useRef<Element | null>(null)
   const tipTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -183,6 +185,17 @@ export function App() {
             placeholder="Enter a URL"
           />
         </label>
+        <button
+          type="button"
+          className="icon"
+          aria-label="Canvas"
+          data-tip={`Canvas: every frame side by side. Off: one page fills the window, like a normal browser (${keys('Mod+Enter')})`}
+          aria-pressed={!single}
+          disabled={!url}
+          onClick={() => canvas.current?.command('focus')}
+        >
+          <Icon d={ICONS.grid} />
+        </button>
         <button ref={addButton} type="button" className="icon" aria-label="Add frame" data-tip={`Add a frame: pick a device (${keys('Mod+T')})`} disabled={!url} onClick={addFrame}>
           <Icon d={ICONS.plus} />
         </button>
@@ -229,7 +242,7 @@ export function App() {
       <main className={url ? 'viewport with-canvas' : 'viewport'}>
         {error && <p className="status error">{error}</p>}
         {url ? (
-          <Canvas ref={canvas} url={url} dark={dark} />
+          <Canvas ref={canvas} url={url} dark={dark} onSingle={setSingle} />
         ) : (
           <div className="start">
             <p className="start-hint">Enter a URL to start</p>

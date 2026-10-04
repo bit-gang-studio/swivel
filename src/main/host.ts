@@ -349,11 +349,15 @@ export class EngineHost {
     this.settings = { ...this.settings, url }
     if (!this.canvas) for (const e of ENGINES) this.views.get(e)?.hide()
     const next = new Map(frames.map((f) => [f.id, f]))
-    for (const id of this.canvas?.keys() ?? []) if (!next.has(id)) this.dropView(canvasKey(id))
+    const before = this.canvas
+    for (const id of before?.keys() ?? []) if (!next.has(id)) this.dropView(canvasKey(id))
     this.canvas = next
     await Promise.all(
       frames.map(async (f) => {
         const key = canvasKey(f.id)
+        // A frame that hasn't changed is left alone (one frame resizing must not disturb the rest).
+        const was = before?.get(f.id)
+        if (was && this.views.has(key) && was.engine === f.engine && was.viewport.width === f.viewport.width && was.viewport.height === f.viewport.height) return
         if (this.views.get(key)?.engine !== f.engine) this.dropView(key) // Engine changed: a new page.
         if (!this.urls.has(key)) this.urls.set(key, url)
         const view = this.views.get(key) ?? this.makeView(key, f.engine)

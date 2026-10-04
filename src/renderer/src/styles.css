@@ -157,3 +157,9 @@ button, input, select { font: inherit; color: inherit; }
 .authbar button { height: 28px; padding: 0 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); font-size: 13px; cursor: pointer; }
 .authbar button[type='submit'] { background: var(--text); border-color: var(--text); color: var(--surface); font-weight: 600; }
 
+
+/* One frame alone, filling the window like a normal browser: its size is the window's. */
+.frame.filling header { cursor: default; padding: 0 6px; box-sizing: border-box; }
+.frame.filling header button[aria-label] { visibility: visible; }
+.frame.filling .size, .frame.filling button[aria-label='Rotate'], .frame.filling .frame-edge, .frame.filling .frame-handle { display: none; }
+.frame.filling .frame-body { box-shadow: none; }
