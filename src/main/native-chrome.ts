@@ -95,9 +95,8 @@ export class NativeChrome implements PageView {
       void wc.loadURL(url)
       return { action: 'deny' }
     })
-    view.setVisible(false)
+    view.setVisible(false) // Until it's placed.
     this.win.contentView.addChildView(view)
-    if (this.rect) view.setBounds(this.bounds(this.rect))
     // Commit a blank page first, so emulation (size, dark mode) is in place before real content runs.
     const blank = wc.loadURL('about:blank').catch(() => {})
     this.blank = Promise.race([blank, new Promise<void>((r) => setTimeout(r, 2000))]).then(() => {
@@ -119,12 +118,12 @@ export class NativeChrome implements PageView {
   show(): void {
     this.active = true
     log('blink show', { view: !!this.view, rect: this.rect && this.bounds(this.rect), cut: this.cut })
-    if (this.view && this.rect && !this.cut) this.view.setVisible(true)
+    this.place()
   }
 
   hide(): void {
     this.active = false
-    this.view?.setVisible(false)
+    this.place()
   }
 
   input(_e: InputEvent): void {
@@ -140,6 +139,7 @@ export class NativeChrome implements PageView {
     }
     this.opts = opts
     const view = (this.view ??= this.create())
+    this.place()
     log('blink open', opts.url.slice(0, 50), opts.viewport, { rect: this.rect && this.bounds(this.rect), scale: this.scale() })
     await this.blank
     await this.applyEmulation()
@@ -186,7 +186,7 @@ export class NativeChrome implements PageView {
     const first = !this.rect
     this.rect = rect
     if (!this.view) return
-    this.view.setBounds(this.bounds(rect))
+    this.place()
     if (first) await this.applyEmulation()
     else if (resized) this.applyZoom()
     this.updateCut()
@@ -201,6 +201,21 @@ export class NativeChrome implements PageView {
    *   about once a second, from the hidden view kept at 25%.
    */
   private cut = false
+  /** The still image for this cut is up; the live view can leave the screen. */
+  private snapped = false
+
+  /**
+   * Put the view where it belongs. A view that isn't to be seen (hidden, cut off, or too small
+   * to draw) is parked above the window at its full size, never hidden: a hidden view tells
+   * its page the window is 0 pixels wide, and the page lays itself out again for that.
+   */
+  private place(): void {
+    if (!this.view || !this.rect) return
+    const b = this.bounds(this.rect)
+    const onScreen = this.active && !this.tiny() && (!this.cut || !this.snapped)
+    this.view.setBounds(onScreen ? b : { ...b, y: -(b.height + 2000) })
+    this.view.setVisible(true)
+  }
   private refresh?: ReturnType<typeof setInterval>
 
   /** Smaller on the canvas than Chromium can draw it. */
@@ -225,6 +240,7 @@ export class NativeChrome implements PageView {
     if (cut !== this.cut) {
       log('blink cut', cut, { tiny, rect: r && this.bounds(r), clip: c, window: { width: w.width, height: w.height } })
       this.cut = cut
+      this.snapped = false
       if (cut) void this.swapForSnapshot()
       else this.emit('snapshot', null)
     }
@@ -233,18 +249,18 @@ export class NativeChrome implements PageView {
       clearInterval(this.refresh)
       this.refresh = undefined
     }
-    if (!cut && this.opts && this.active) this.view?.setVisible(true)
+    this.place()
   }
 
   private async swapForSnapshot(): Promise<void> {
     // Let a new size or zoom paint first, or the image shows the old layout.
     await new Promise((r) => setTimeout(r, 100))
     if (!this.cut) return
-    // stayHidden: the view may already be hidden (a refresh); capturing must not show it.
-    const image = await this.view?.webContents.capturePage(undefined, { stayHidden: true }).catch(() => undefined)
+    const image = await this.view?.webContents.capturePage().catch(() => undefined)
     if (!this.cut) return
     if (image && !image.isEmpty()) this.emit('snapshot', image.toDataURL())
-    this.view?.setVisible(false)
+    this.snapped = true
+    this.place()
   }
 
   private scale(): number {

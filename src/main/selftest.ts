@@ -1,49 +1,65 @@
 import { readFileSync } from 'node:fs'
 import { app, type BrowserWindow } from 'electron'
+import type { EngineHost } from './host'
+import { nativeEngines } from './host'
 import { logFile } from './log'
-import type { EngineId } from '../shared/types'
-import { nativeEngines, type EngineHost } from './host'
 
 /**
- * SWIVEL_SELFTEST=1: check a canvas frame in each native engine loads a page at the frame's
- * size and colour scheme, without a test runner attached (a runner changes how the debugger behaves).
- * Prints the result and quits.
+ * SWIVEL_SELFTEST=1: check that frames in the native engines lay their page out at the frame's own
+ * width, whatever size they're drawn at, and in the chosen colour scheme. Driven through the UI
+ * like a person would, without a test runner attached (a runner changes how the debugger
+ * behaves). Prints the result and quits.
  */
 export async function selfTest(win: BrowserWindow, host: EngineHost): Promise<void> {
-  // Reports the width twice: while the page first parses, and after it loads. Only the loaded
-  // layout must be right. Chrome on Windows can briefly show a site's first visit at the old zoom.
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+  const ui = (js: string) => win.webContents.executeJavaScript(js)
+  // Each page reports its width while it first parses, and again after it loads. Only the loaded
+  // layout must be right: Chromium on Windows can briefly show a site's first visit at the old zoom.
   const page =
     'data:text/html,' +
     encodeURIComponent(
       "<script>const early = innerWidth; addEventListener('load', () => setTimeout(() => console.log('dark:' + matchMedia('(prefers-color-scheme: dark)').matches + ' width:' + innerWidth + ' early:' + early), 300))</script>"
     )
-  const results: string[] = []
-  const finish = () => {
-    const ok = results.every((r) => r.includes('dark:true width:1280 '))
-    for (const r of results) if (ok && !r.endsWith('early:1280')) console.log(`SELFTEST note: brief first-visit reflow (${r})`)
-    console.log(`SELFTEST ${ok ? 'PASS' : 'FAIL'} ${results.join(' | ')}`)
+  const reports: { engine: string; text: string }[] = []
+  host.onConsole = (engine, text) => text.startsWith('dark:') && reports.push({ engine, text })
+  /** Wait until every width has been reported by the engine, in dark mode. */
+  const expect = async (engine: string, widths: number[]) => {
+    const missing = () => widths.filter((w) => !reports.some((r) => r.engine === engine && r.text.includes(`dark:true width:${w} `)))
+    for (let i = 0; i < 80 && missing().length; i++) await sleep(250)
+    return missing()
+  }
+  let done = false
+  const finish = (problems: string[]) => {
+    if (done) return
+    done = true
+    console.log(`SELFTEST ${problems.length ? 'FAIL ' + problems.join(' | ') : 'PASS'}`)
+    console.log(reports.map((r) => `${r.engine} ${r.text}`).join('\n'))
     const diagnostics = logFile()
-    if (!ok && diagnostics) console.log(readFileSync(diagnostics, 'utf8'))
-    app.exit(ok ? 0 : 1)
+    if (problems.length && diagnostics) console.log(readFileSync(diagnostics, 'utf8'))
+    app.exit(problems.length ? 1 : 0)
   }
-  setTimeout(() => {
-    results.push('timed out')
-    finish()
-  }, 60_000)
-  // Let the window's UI settle first.
-  await new Promise((r) => setTimeout(r, 1500))
+  setTimeout(() => finish(['timed out']), 90_000)
+
+  await sleep(1500) // Let the window's UI settle.
+  await ui(`document.querySelector('button[aria-label="Dark mode"]').click()`)
+  await ui(`(() => {
+    const input = document.querySelector('.address input')
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(page)})
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    input.form.requestSubmit()
+  })()`)
+
+  const problems: string[] = []
+  // The Responsive set: Blink at four widths, drawn much smaller than that.
+  const blink = await expect('chromium', [1440, 1280, 820, 390])
+  if (blink.length) problems.push(`chromium frames missing widths ${blink.join(', ')}`)
+
+  // The Browsers set: a frame per engine, 1280 wide.
+  await ui(`[...document.querySelectorAll('.sets button')].find((b) => b.textContent.trim() === 'Browsers').click()`)
   for (const engine of nativeEngines()) {
-    const seen = new Promise<string>((resolve) => {
-      host.onConsole = (from, text) => from === engine && text.startsWith('dark:') && resolve(text)
-      setTimeout(() => resolve('no page output'), 15_000)
-    })
-    // One frame, 1280 wide, drawn 400 wide. Scale 0.3125: well below 0.5, where WKWebView's own
-    // page zoom stops, so clamping shows up.
-    const id = `selftest-${engine}`
-    const ready = host.setCanvas([{ id, engine: engine as EngineId, viewport: { width: 1280, height: 800 } }], { url: page + '%3C!--' + engine + '--%3E', colorScheme: 'dark' })
-    await host.setFrameRect(id, { x: 0, y: 100, width: 400, height: 250 })
-    await ready
-    results.push(`${engine} ${await seen}`)
+    if (engine === 'chromium') continue // Checked above.
+    const missing = await expect(engine, [1280])
+    if (missing.length) problems.push(`${engine} frame missing width 1280`)
   }
-  finish()
+  finish(problems)
 }
