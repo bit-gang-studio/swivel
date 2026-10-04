@@ -84,7 +84,9 @@ export class NativeChrome implements PageView {
   private starting: Promise<void> = Promise.resolve()
 
   update(opts: LiveOptions): Promise<void> {
-    this.starting = this.open(opts)
+    // One at a time: a quick size-only update must not finish (and let a navigation through)
+    // while an earlier update is still about to load its page.
+    this.starting = this.starting.catch(() => {}).then(() => this.open(opts))
     return this.starting
   }
 
@@ -121,8 +123,8 @@ export class NativeChrome implements PageView {
   }
 
   async navigate(url: string): Promise<void> {
-    if (!this.opts) return
     await this.starting
+    if (!this.opts) return
     this.opts = { ...this.opts, url }
     this.load(url)
   }

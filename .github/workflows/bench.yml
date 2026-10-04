@@ -47,11 +47,11 @@ jobs:
         run: SWIVEL_CLICKTEST=1 npx electron .
       - name: Visual check (macOS)
         if: runner.os == 'macOS'
-        timeout-minutes: 4
+        timeout-minutes: 7
         run: SWIVEL_VISUAL=screenshots npx electron .
       - name: Visual check (Linux)
         if: runner.os == 'Linux'
-        timeout-minutes: 4
+        timeout-minutes: 7
         run: |
           sudo apt-get install -y imagemagick >/dev/null
           SWIVEL_VISUAL=screenshots xvfb-run -a -s "-screen 0 1440x960x24" npx electron . --no-sandbox

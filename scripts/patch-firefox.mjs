@@ -16,7 +16,7 @@ const exe = firefox.executablePath() // .../firefox-NNNN/firefox/Nightly.app/Con
 const source = dirname(dirname(dirname(exe)))
 const revision = source.match(/firefox-(\d+)/)?.[1] ?? 'unknown'
 const dest = join(homedir(), 'Library/Caches/swivel', `firefox-window-${revision}`, 'Nightly.app')
-const MARKER = 'swivel-patch-v20'
+const MARKER = 'swivel-patch-v21'
 const SWIVEL_NATIVE_TWEAKS = `
 // Swivel: native window tweaks, run from inside Firefox (js-ctypes, Objective-C runtime).
 // - Accessory app: no Dock icon or app switcher entry. Firefox makes itself a regular app at
@@ -192,6 +192,10 @@ patch(`${juggler}/TargetRegistry.js`, `    await waitForWindowReady(window);
     if (chromeless) {
       const toolbox = window.document.getElementById('navigator-toolbox');
       if (toolbox) toolbox.collapsed = true;
+      // Firefox won't make a browser window narrower than about 500 points; a phone-sized page
+      // needs less.
+      window.document.documentElement.style.setProperty('min-width', '0', 'important');
+      window.document.documentElement.style.setProperty('min-height', '0', 'important');
       swivelNativeTweaks(undefined, { x: Services.prefs.getIntPref("swivel.windowX", 0), y: 0 });
     }
     if (window.gBrowser.browsers.length !== 1)`)
