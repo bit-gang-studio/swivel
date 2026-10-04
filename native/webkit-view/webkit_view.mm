@@ -42,6 +42,10 @@ static NSString* const kConsoleHook = @"(() => {"
 @property(nonatomic, weak) NSView* content;
 @property(nonatomic, strong) WKWebView* web;
 @property(nonatomic, assign) EventFn* events;
+// Sign-in and certificate questions waiting for the user's answer, by request id.
+@property(nonatomic, strong) NSMutableDictionary<NSNumber*, id>* waiting;
+@property(nonatomic, strong) NSMutableDictionary<NSNumber*, NSURLAuthenticationChallenge*>* challenges;
+@property(nonatomic, assign) int nextRequest;
 @end
 
 @implementation SwivelWebView
@@ -76,6 +80,68 @@ static NSString* const kConsoleHook = @"(() => {"
 - (void)webView:(WKWebView*)w didFailProvisionalNavigation:(WKNavigation*)n withError:(NSError*)e {
   [self fail:e];
 }
+// A site asks for a username and password, or its certificate isn't trusted: Swivel asks the
+// user (once per window) and answers through answerChallenge.
+- (void)webView:(WKWebView*)w didReceiveAuthenticationChallenge:(NSURLAuthenticationChallenge*)challenge
+    completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition, NSURLCredential*))done {
+  NSURLProtectionSpace* space = challenge.protectionSpace;
+  NSString* method = space.authenticationMethod;
+  BOOL trust = [method isEqualToString:NSURLAuthenticationMethodServerTrust];
+  BOOL signIn = [method isEqualToString:NSURLAuthenticationMethodHTTPBasic] || [method isEqualToString:NSURLAuthenticationMethodHTTPDigest] ||
+                [method isEqualToString:NSURLAuthenticationMethodNTLM];
+  if (trust) {
+    CFErrorRef error = NULL;
+    if (!space.serverTrust || SecTrustEvaluateWithError(space.serverTrust, &error)) {
+      done(NSURLSessionAuthChallengePerformDefaultHandling, nil);
+      return;
+    }
+    if (error) CFRelease(error);
+  }
+  if (!trust && !signIn) {
+    done(NSURLSessionAuthChallengePerformDefaultHandling, nil);
+    return;
+  }
+  if (!self.waiting) {
+    self.waiting = [NSMutableDictionary new];
+    self.challenges = [NSMutableDictionary new];
+  }
+  NSNumber* request = @(++self.nextRequest);
+  self.waiting[request] = [done copy];
+  self.challenges[request] = challenge;
+  NSString* site = space.port == 443 || space.port == 80 || space.port == 0 ? space.host : [NSString stringWithFormat:@"%@:%ld", space.host, (long)space.port];
+  // b: the site, then (sign-in only) how many answers were already refused.
+  std::string info = std::string(site.UTF8String) + (trust ? "" : "\n" + std::to_string(challenge.previousFailureCount));
+  [self send:(trust ? "trust" : "auth") a:std::to_string(request.intValue) b:info];
+}
+// Page dialogs: without these, alert() does nothing and confirm() is always false.
+- (void)webView:(WKWebView*)w runJavaScriptAlertPanelWithMessage:(NSString*)message initiatedByFrame:(WKFrameInfo*)f completionHandler:(void (^)(void))done {
+  NSAlert* alert = [NSAlert new];
+  alert.messageText = message.length ? message : @" ";
+  alert.informativeText = @"From the page, in WebKit (Safari).";
+  if (!w.window) return done();
+  [alert beginSheetModalForWindow:w.window completionHandler:^(NSModalResponse r) { done(); }];
+}
+- (void)webView:(WKWebView*)w runJavaScriptConfirmPanelWithMessage:(NSString*)message initiatedByFrame:(WKFrameInfo*)f completionHandler:(void (^)(BOOL))done {
+  NSAlert* alert = [NSAlert new];
+  alert.messageText = message.length ? message : @" ";
+  alert.informativeText = @"From the page, in WebKit (Safari).";
+  [alert addButtonWithTitle:@"OK"];
+  [alert addButtonWithTitle:@"Cancel"];
+  if (!w.window) return done(NO);
+  [alert beginSheetModalForWindow:w.window completionHandler:^(NSModalResponse r) { done(r == NSAlertFirstButtonReturn); }];
+}
+- (void)webView:(WKWebView*)w runJavaScriptTextInputPanelWithPrompt:(NSString*)prompt defaultText:(NSString*)text initiatedByFrame:(WKFrameInfo*)f completionHandler:(void (^)(NSString*))done {
+  NSAlert* alert = [NSAlert new];
+  alert.messageText = prompt.length ? prompt : @" ";
+  alert.informativeText = @"From the page, in WebKit (Safari).";
+  [alert addButtonWithTitle:@"OK"];
+  [alert addButtonWithTitle:@"Cancel"];
+  NSTextField* field = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 280, 24)];
+  field.stringValue = text ?: @"";
+  alert.accessoryView = field;
+  if (!w.window) return done(nil);
+  [alert beginSheetModalForWindow:w.window completionHandler:^(NSModalResponse r) { done(r == NSAlertFirstButtonReturn ? field.stringValue : nil); }];
+}
 // Links that open a new window load in place instead.
 - (WKWebView*)webView:(WKWebView*)w createWebViewWithConfiguration:(WKWebViewConfiguration*)c
     forNavigationAction:(WKNavigationAction*)action windowFeatures:(WKWindowFeatures*)f {
@@ -99,8 +165,118 @@ static WKWebsiteDataStore* StoreFor(const std::string& key) {
   return store;
 }
 
+// Cookies of a window's data store, so Swivel can keep them the same in every engine.
+@interface SwivelCookieWatcher : NSObject <WKHTTPCookieStoreObserver>
+@property(nonatomic, assign) Napi::ThreadSafeFunction* changed;
+@end
+@implementation SwivelCookieWatcher
+- (void)cookiesDidChangeInCookieStore:(WKHTTPCookieStore*)store {
+  if (self.changed) self.changed->NonBlockingCall([](Napi::Env env, Napi::Function fn) { fn.Call({}); });
+}
+@end
+static std::map<std::string, SwivelCookieWatcher*> cookieWatchers;
+static std::map<std::string, Napi::ThreadSafeFunction> cookieWatchFns;
+
+static void UnwatchCookieStore(const std::string& key) {
+  SwivelCookieWatcher* watcher = cookieWatchers[key];
+  if (!watcher) return;
+  watcher.changed = nullptr;
+  auto store = stores.find(key);
+  if (store != stores.end()) [store->second.httpCookieStore removeObserver:watcher];
+  cookieWatchers.erase(key);
+  cookieWatchFns[key].Release();
+  cookieWatchFns.erase(key);
+}
+
 static Napi::Value ReleaseStore(const Napi::CallbackInfo& info) {
-  stores.erase(info[0].As<Napi::String>().Utf8Value());
+  std::string key = info[0].As<Napi::String>().Utf8Value();
+  UnwatchCookieStore(key);
+  stores.erase(key);
+  return info.Env().Undefined();
+}
+
+static NSString* SameSiteName(NSHTTPCookie* c) {
+  if ([c.sameSitePolicy isEqualToString:NSHTTPCookieSameSiteStrict]) return @"Strict";
+  if ([c.sameSitePolicy isEqualToString:NSHTTPCookieSameSiteLax]) return @"Lax";
+  return nil;
+}
+
+// cookies(store, done): every cookie in the store, as JSON (the shape of Cookie in cookies.ts).
+static Napi::Value Cookies(const Napi::CallbackInfo& info) {
+  std::string key = info[0].As<Napi::String>().Utf8Value();
+  auto done = Napi::ThreadSafeFunction::New(info.Env(), info[1].As<Napi::Function>(), "swivel-cookies", 0, 1);
+  [StoreFor(key).httpCookieStore getAllCookies:^(NSArray<NSHTTPCookie*>* cookies) {
+    NSMutableArray* out = [NSMutableArray new];
+    for (NSHTTPCookie* c in cookies) {
+      NSMutableDictionary* d = [@{ @"name": c.name, @"value": c.value, @"domain": c.domain, @"path": c.path, @"httpOnly": @(c.isHTTPOnly), @"secure": @(c.isSecure) } mutableCopy];
+      if (c.expiresDate && !c.isSessionOnly) d[@"expires"] = @(c.expiresDate.timeIntervalSince1970);
+      NSString* sameSite = SameSiteName(c);
+      if (sameSite) d[@"sameSite"] = sameSite;
+      [out addObject:d];
+    }
+    NSData* data = [NSJSONSerialization dataWithJSONObject:out options:0 error:nil];
+    std::string json = data ? std::string((const char*)data.bytes, data.length) : "[]";
+    auto fn = done;
+    fn.NonBlockingCall([json](Napi::Env env, Napi::Function cb) { cb.Call({Napi::String::New(env, json)}); });
+    fn.Release();
+  }];
+  return info.Env().Undefined();
+}
+
+static NSHTTPCookie* CookieFromJson(const std::string& json) {
+  NSData* data = [NSData dataWithBytes:json.data() length:json.size()];
+  NSDictionary* d = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+  if (![d isKindOfClass:[NSDictionary class]]) return nil;
+  NSMutableDictionary* p = [NSMutableDictionary new];
+  p[NSHTTPCookieName] = d[@"name"];
+  p[NSHTTPCookieValue] = d[@"value"];
+  p[NSHTTPCookieDomain] = d[@"domain"];
+  p[NSHTTPCookiePath] = d[@"path"] ?: @"/";
+  if ([d[@"secure"] boolValue]) p[NSHTTPCookieSecure] = @"TRUE";
+  if ([d[@"httpOnly"] boolValue]) p[@"HttpOnly"] = @"TRUE";
+  if (d[@"expires"]) p[NSHTTPCookieExpires] = [NSDate dateWithTimeIntervalSince1970:[d[@"expires"] doubleValue]];
+  NSString* sameSite = d[@"sameSite"];
+  if ([sameSite isEqualToString:@"Strict"]) p[NSHTTPCookieSameSitePolicy] = NSHTTPCookieSameSiteStrict;
+  else if ([sameSite isEqualToString:@"Lax"]) p[NSHTTPCookieSameSitePolicy] = NSHTTPCookieSameSiteLax;
+  return [NSHTTPCookie cookieWithProperties:p];
+}
+
+// setCookie(store, json)
+static Napi::Value SetCookie(const Napi::CallbackInfo& info) {
+  NSHTTPCookie* cookie = CookieFromJson(info[1].As<Napi::String>().Utf8Value());
+  if (cookie) [StoreFor(info[0].As<Napi::String>().Utf8Value()).httpCookieStore setCookie:cookie completionHandler:nil];
+  return info.Env().Undefined();
+}
+
+// deleteCookie(store, name, domain, path)
+static Napi::Value DeleteCookie(const Napi::CallbackInfo& info) {
+  WKHTTPCookieStore* store = StoreFor(info[0].As<Napi::String>().Utf8Value()).httpCookieStore;
+  NSString* name = [NSString stringWithUTF8String:info[1].As<Napi::String>().Utf8Value().c_str()];
+  NSString* domain = [NSString stringWithUTF8String:info[2].As<Napi::String>().Utf8Value().c_str()];
+  NSString* path = [NSString stringWithUTF8String:info[3].As<Napi::String>().Utf8Value().c_str()];
+  [store getAllCookies:^(NSArray<NSHTTPCookie*>* cookies) {
+    for (NSHTTPCookie* c in cookies)
+      if ([c.name isEqualToString:name] && [c.domain isEqualToString:domain] && [c.path isEqualToString:path]) [store deleteCookie:c completionHandler:nil];
+  }];
+  return info.Env().Undefined();
+}
+
+// watchCookies(store, changed): calls back whenever the store's cookies change.
+static Napi::Value WatchCookies(const Napi::CallbackInfo& info) {
+  std::string key = info[0].As<Napi::String>().Utf8Value();
+  UnwatchCookieStore(key);
+  cookieWatchFns[key] = Napi::ThreadSafeFunction::New(info.Env(), info[1].As<Napi::Function>(), "swivel-cookie-watch", 0, 1);
+  // Don't keep the app alive for a watcher.
+  cookieWatchFns[key].Unref(info.Env());
+  SwivelCookieWatcher* watcher = [SwivelCookieWatcher new];
+  watcher.changed = &cookieWatchFns[key];
+  cookieWatchers[key] = watcher;
+  [StoreFor(key).httpCookieStore addObserver:watcher];
+  return info.Env().Undefined();
+}
+
+static Napi::Value UnwatchCookies(const Napi::CallbackInfo& info) {
+  UnwatchCookieStore(info[0].As<Napi::String>().Utf8Value());
   return info.Env().Undefined();
 }
 
@@ -186,6 +362,29 @@ static Napi::Value ClickAt(const Napi::CallbackInfo& info) {
   return info.Env().Undefined();
 }
 
+// answerChallenge(id, request, username?, password?): the user's answer to an "auth" or "trust"
+// event. Sign-in: a username and password. Certificate: any string to proceed. Nothing: cancel.
+static Napi::Value AnswerChallenge(const Napi::CallbackInfo& info) {
+  SwivelWebView* v = Get(info);
+  if (!v) return info.Env().Undefined();
+  NSNumber* request = @(info[1].As<Napi::Number>().Int32Value());
+  void (^done)(NSURLSessionAuthChallengeDisposition, NSURLCredential*) = v.waiting[request];
+  NSURLAuthenticationChallenge* challenge = v.challenges[request];
+  if (!done || !challenge) return info.Env().Undefined();
+  [v.waiting removeObjectForKey:request];
+  [v.challenges removeObjectForKey:request];
+  if (info.Length() < 3 || !info[2].IsString()) {
+    done(NSURLSessionAuthChallengeCancelAuthenticationChallenge, nil);
+  } else if ([challenge.protectionSpace.authenticationMethod isEqualToString:NSURLAuthenticationMethodServerTrust]) {
+    done(NSURLSessionAuthChallengeUseCredential, [NSURLCredential credentialForTrust:challenge.protectionSpace.serverTrust]);
+  } else {
+    NSString* user = [NSString stringWithUTF8String:info[2].As<Napi::String>().Utf8Value().c_str()];
+    NSString* pass = info.Length() > 3 && info[3].IsString() ? [NSString stringWithUTF8String:info[3].As<Napi::String>().Utf8Value().c_str()] : @"";
+    done(NSURLSessionAuthChallengeUseCredential, [NSURLCredential credentialWithUser:user password:pass persistence:NSURLCredentialPersistenceNone]);
+  }
+  return info.Env().Undefined();
+}
+
 static Napi::Value Load(const Napi::CallbackInfo& info) {
   SwivelWebView* v = Get(info);
   std::string url = info[1].As<Napi::String>();
@@ -262,6 +461,7 @@ static Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("create", Napi::Function::New(env, Create));
   exports.Set("setFrame", Napi::Function::New(env, SetFrame));
   exports.Set("setClip", Napi::Function::New(env, SetClip));
+  exports.Set("answerChallenge", Napi::Function::New(env, AnswerChallenge));
   exports.Set("clickAt", Napi::Function::New(env, ClickAt));
   exports.Set("load", Napi::Function::New(env, Load));
   exports.Set("history", Napi::Function::New(env, History));
@@ -271,6 +471,11 @@ static Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("evaluateWithResult", Napi::Function::New(env, EvaluateWithResult));
   exports.Set("destroy", Napi::Function::New(env, Destroy));
   exports.Set("releaseStore", Napi::Function::New(env, ReleaseStore));
+  exports.Set("cookies", Napi::Function::New(env, Cookies));
+  exports.Set("setCookie", Napi::Function::New(env, SetCookie));
+  exports.Set("deleteCookie", Napi::Function::New(env, DeleteCookie));
+  exports.Set("watchCookies", Napi::Function::New(env, WatchCookies));
+  exports.Set("unwatchCookies", Napi::Function::New(env, UnwatchCookies));
   return exports;
 }
 

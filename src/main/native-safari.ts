@@ -1,13 +1,15 @@
 import { createRequire } from 'node:module'
 import type { BrowserWindow } from 'electron'
-import type { EngineId, InputEvent, LiveOptions, ViewRect } from '../shared/types'
-import type { Emit, PageView } from './view'
+import type { Credentials, EngineId, InputEvent, LiveOptions, ViewRect } from '../shared/types'
+import type { Asker, Emit, PageView } from './view'
 import { findInPage, type FindRequest, type FindResult } from '../shared/find'
 
 
 interface Addon {
   /** store: the Swivel window's data key; views with the same key share one in-memory data store. */
   create(parent: Buffer, onEvent: (type: string, a: string, b: string) => void, store: string): number
+  /** Answer an 'auth' or 'trust' event: username and password, any string to trust, or nothing to cancel. */
+  answerChallenge(id: number, request: number, username?: string, password?: string): void
   /** Test hook: a real click at x, y in window points, hit-tested by macOS like a user's. */
   clickAt?(parent: Buffer, x: number, y: number): void
   /** Drop a window's data store (once its views are gone). */
@@ -52,8 +54,11 @@ export class NativeSafari implements PageView {
 
   private store: string
 
-  constructor(win: BrowserWindow, emit: Emit, addon: Addon, store: string) {
+  private ask: Asker
+
+  constructor(win: BrowserWindow, emit: Emit, addon: Addon, store: string, ask: Asker) {
     this.store = store
+    this.ask = ask
     this.win = win
     this.emit = emit
     this.addon = addon
@@ -69,8 +74,26 @@ export class NativeSafari implements PageView {
       }
       else if (type === 'error') this.emit('error', a)
       else if (type === 'result') this.results.get(a)?.(b)
+      else if (type === 'auth' || type === 'trust') void this.answer(type, Number(a), b)
     }, this.store)
   }
+
+  /** A sign-in request or an untrusted certificate: the window asks once for all its views. */
+  private async answer(type: 'auth' | 'trust', request: number, info: string): Promise<void> {
+    const id = this.id
+    if (id === undefined) return
+    if (type === 'trust') {
+      const ok = await this.ask.trust(info, "This site's certificate can't be verified.")
+      return ok ? this.addon.answerChallenge(id, request, 'trust') : this.addon.answerChallenge(id, request)
+    }
+    const [site, failures] = info.split('\n')
+    const credentials = await this.ask.credentials(site, Number(failures) > 0 ? this.triedAuth.get(site) : undefined)
+    if (!credentials) return this.addon.answerChallenge(id, request)
+    this.triedAuth.set(site, credentials)
+    this.addon.answerChallenge(id, request, credentials.username, credentials.password)
+  }
+
+  private triedAuth = new Map<string, Credentials>()
 
   async update(opts: LiveOptions): Promise<void> {
     const id = (this.id ??= this.create())

@@ -1,8 +1,8 @@
 import { join } from 'node:path'
 import { app, screen, type BrowserWindow } from 'electron'
 import { chromium, firefox, webkit, type Browser, type BrowserContext, type BrowserType, type Page } from 'playwright-core'
-import type { EngineId, Frame, InputEvent, LiveOptions, ViewRect } from '../shared/types'
-import type { Emit, PageView } from './view'
+import type { Credentials, EngineId, Frame, InputEvent, LiveOptions, ViewRect } from '../shared/types'
+import type { Asker, Emit, PageView } from './view'
 import { FrameSource, jugglerSession } from './frames'
 import { FirefoxWindow, parkingSpot, windowedFirefoxStatus, windowedLaunchOptions } from './firefox-window'
 import { findInPage, type FindRequest } from '../shared/find'
@@ -101,6 +101,24 @@ const message = (err: unknown) => (err instanceof Error ? err.message.split('\n'
 // Errors from a navigation that a newer one replaced. Not worth showing.
 const superseded = (err: unknown) => /interrupted by another navigation|NS_BINDING_ABORTED|Navigation.*aborted|frame was detached|Target.*closed|has been closed/i.test(message(err))
 
+const CERTIFICATE_ERROR = /SSL_ERROR|SEC_ERROR|MOZILLA_PKIX_ERROR|ERR_CERT|certificate/i
+
+/**
+ * Accept untrusted certificates in a context from now on. Playwright only offers this when a
+ * context is made (which would mean dropping the window's data), so this sends the browser's own
+ * command.
+ */
+async function ignoreCertificateErrors(context: BrowserContext, engine: EngineId): Promise<void> {
+  try {
+    const impl = (context as unknown as { _connection: { toImpl: (x: unknown) => { _browserContextId?: string; _browser: { session?: { send: (m: string, p: unknown) => Promise<unknown> }; _browserSession?: { send: (m: string, p: unknown) => Promise<unknown> } } } } })._connection.toImpl(context)
+    const browserContextId = impl._browserContextId
+    if (engine === 'firefox') await impl._browser.session?.send('Browser.setIgnoreHTTPSErrors', { browserContextId, ignoreHTTPSErrors: true })
+    else if (engine === 'webkit') await impl._browser._browserSession?.send('Playwright.setIgnoreCertificateErrors', { browserContextId, ignore: true })
+  } catch {
+    // The page then fails again and the error is shown.
+  }
+}
+
 /**
  * A streamed page: runs headless in Playwright, frames are drawn on a canvas in the UI, and
  * mouse/keyboard input is replayed into the page. The page stays alive while hidden.
@@ -127,8 +145,17 @@ export class StreamedView implements PageView {
 
   private storageId: string
 
-  constructor(engine: EngineId, emit: Emit, storageId: string, win?: BrowserWindow) {
+  private ask: Asker
+  /** The sign-in this view last used per site, to tell a refused one from a first request. */
+  private triedAuth = new Map<string, Credentials>()
+
+  /** Called with the window's browser context before its first page loads (to give it the window's cookies). */
+  private onContext?: (context: BrowserContext) => Promise<void>
+
+  constructor(engine: EngineId, emit: Emit, storageId: string, ask: Asker, win?: BrowserWindow, onContext?: (context: BrowserContext) => Promise<void>) {
     this.storageId = storageId
+    this.ask = ask
+    this.onContext = onContext
     this.engine = engine
     this.emit = emit
     this.win = win
@@ -168,6 +195,7 @@ export class StreamedView implements PageView {
 
   private async createPage(): Promise<Page> {
     const context = await getContext(this.engine, this.storageId, this.win)
+    await this.onContext?.(context)
     const page = await context.newPage()
     this.page = page
     if (this.engine === 'firefox' && this.win && windowedFirefoxStatus() === 'on' && this.opts) {
@@ -205,6 +233,17 @@ export class StreamedView implements PageView {
       if (req.isNavigationRequest() && req.frame() === page.mainFrame()) this.emit('loading', true)
     })
     page.on('load', () => this.emit('loading', false))
+    // Playwright's browsers answer a sign-in request with a plain 401 page, and close page
+    // dialogs by themselves: ask the user instead, as a browser would.
+    page.on('response', (res) => {
+      if (res.status() !== 401 || res.frame() !== page.mainFrame() || !res.request().isNavigationRequest()) return
+      if (/basic|digest|ntlm|negotiate/i.test(res.headers()['www-authenticate'] ?? '')) void this.signIn(page, context, res.url())
+    })
+    page.on('dialog', (d) => {
+      const kind = d.type()
+      if (kind === 'beforeunload') return void d.accept().catch(() => {})
+      void this.ask.dialog(kind as 'alert' | 'confirm' | 'prompt', d.message(), this.engine).then((ok) => (ok ? d.accept(kind === 'prompt' ? d.defaultValue() : undefined) : d.dismiss()).catch(() => {}))
+    })
     page.on('framenavigated', (frame) => {
       if (frame !== page.mainFrame()) return
       debug(this.engine, 'navigated', frame.url().slice(0, 60))
@@ -275,6 +314,23 @@ export class StreamedView implements PageView {
     this.window?.setRect(rect)
   }
 
+  private async signIn(page: Page, context: BrowserContext, url: string): Promise<void> {
+    const site = new URL(url).host
+    const credentials = await this.ask.credentials(site, this.triedAuth.get(site))
+    if (!credentials || page !== this.page) return
+    this.triedAuth.set(site, credentials)
+    await context.setHTTPCredentials(credentials).catch(() => {})
+    void this.load(page, () => page.reload({ waitUntil: 'load', timeout: 30_000 }))
+  }
+
+  /** The site's certificate isn't trusted: load it anyway if the user says so. */
+  private async proceedDespiteCertificate(page: Page, url: string, problem: string): Promise<boolean> {
+    if (!(await this.ask.trust(new URL(url).host, problem)) || page !== this.page) return false
+    await ignoreCertificateErrors(page.context(), this.engine)
+    void this.load(page, () => page.goto(url, { waitUntil: 'load', timeout: 30_000 }))
+    return true
+  }
+
   /** Run a navigation in the background and report real failures. */
   private async load(page: Page, go: () => Promise<unknown>): Promise<void> {
     this.emit('loading', true)
@@ -284,11 +340,19 @@ export class StreamedView implements PageView {
       debug(this.engine, 'load done', Date.now() - started, 'ms')
     } catch (err) {
       debug(this.engine, 'load failed', message(err))
-      if (page === this.page && !superseded(err)) this.emit('error', message(err))
+      if (page !== this.page || superseded(err)) return
+      const url = this.loadedUrl
+      if (url && CERTIFICATE_ERROR.test(message(err)) && !this.retriedCertificate.has(url)) {
+        this.retriedCertificate.add(url) // Once per URL: a retry that fails the same way is reported.
+        if (await this.proceedDespiteCertificate(page, url, message(err))) return
+      }
+      this.emit('error', message(err))
     } finally {
       if (page === this.page) this.emit('loading', false)
     }
   }
+
+  private retriedCertificate = new Set<string>()
 
   async find(req: FindRequest): Promise<void> {
     await this.ready

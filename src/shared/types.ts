@@ -60,6 +60,13 @@ export interface LiveEvents extends Omit<ViewEvents, 'frame' | 'cursor' | 'snaps
   snapshot: { view: string; image: string | null }
   /** A menu command, such as 'find' or 'focus-address'. */
   command: string
+  /** A site wants a username and password (HTTP authentication). Answer with answerAuth(id). */
+  auth: { id: number; site: string; retry: boolean }
+}
+
+export interface Credentials {
+  username: string
+  password: string
 }
 
 export interface Rect {

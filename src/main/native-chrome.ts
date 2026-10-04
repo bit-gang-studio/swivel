@@ -1,6 +1,6 @@
 import { app, WebContentsView, type BrowserWindow } from 'electron'
-import type { EngineId, InputEvent, LiveOptions, ViewRect } from '../shared/types'
-import type { Emit, PageView } from './view'
+import type { Credentials, EngineId, InputEvent, LiveOptions, ViewRect } from '../shared/types'
+import type { Asker, Emit, PageView } from './view'
 import type { FindRequest } from '../shared/find'
 
 
@@ -28,8 +28,13 @@ export class NativeChrome implements PageView {
 
   private partition: string
 
-  constructor(win: BrowserWindow, emit: Emit, partition: string) {
+  private ask: Asker
+  /** The sign-in this view last used per site, to tell a refused one from a first request. */
+  private triedAuth = new Map<string, Credentials>()
+
+  constructor(win: BrowserWindow, emit: Emit, partition: string, ask: Asker) {
     this.partition = partition
+    this.ask = ask
     this.win = win
     this.emit = emit
   }
@@ -66,6 +71,22 @@ export class NativeChrome implements PageView {
     })
     wc.on('did-fail-load', (_e, code, desc, url, isMainFrame) => {
       if (isMainFrame && code !== -3) this.emit('error', `${desc} (${url})`) // -3 is an aborted load
+    })
+    // A browser would show a sign-in box or a certificate warning here; the window asks once
+    // for all its views.
+    wc.on('login', (event, _details, authInfo, callback) => {
+      event.preventDefault()
+      // Named like the address bar would: no default port (the other engines name it the same way).
+      const site = authInfo.port === 80 || authInfo.port === 443 ? authInfo.host : `${authInfo.host}:${authInfo.port}`
+      void this.ask.credentials(site, this.triedAuth.get(site)).then((c) => {
+        if (!c) return callback()
+        this.triedAuth.set(site, c)
+        callback(c.username, c.password)
+      })
+    })
+    wc.on('certificate-error', (event, url, error, _certificate, callback) => {
+      event.preventDefault()
+      void this.ask.trust(new URL(url).host, error).then(callback)
     })
     wc.on('found-in-page', (_e, r) => this.emit('find', { matches: r.matches, active: r.activeMatchOrdinal }))
     wc.setWindowOpenHandler(({ url }) => {

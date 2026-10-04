@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import type { FindRequest } from '../shared/find'
-import type { CanvasFrame, EngineId, InputEvent, LiveEvents, LiveOptions, ViewRect, Viewport } from '../shared/types'
+import type { CanvasFrame, Credentials, EngineId, InputEvent, LiveEvents, LiveOptions, ViewRect, Viewport } from '../shared/types'
 
 const api = {
   platform: process.platform,
@@ -25,6 +25,8 @@ const api = {
   selectFrame: (id: string | undefined): void => ipcRenderer.send('swivel:frame-select', id),
   /** A native menu at x, y (window pixels): resolves with the picked item's id, or null. Group rows are headings. */
   pick: (items: { id?: string; label: string; group?: boolean }[], at: { x: number; y: number }): Promise<string | null> => ipcRenderer.invoke('swivel:pick', items, at),
+  /** Answer an 'auth' question: a username and password, or null to cancel. */
+  answerAuth: (id: number, credentials: Credentials | null): void => ipcRenderer.send('swivel:auth-answer', id, credentials),
   setColorScheme: (scheme: 'light' | 'dark'): Promise<void> => ipcRenderer.invoke('swivel:color-scheme', scheme),
   /** Wipe this window's cookies, storage and cache in every engine, and reload. */
   clearData: (): Promise<void> => ipcRenderer.invoke('swivel:clear-data'),

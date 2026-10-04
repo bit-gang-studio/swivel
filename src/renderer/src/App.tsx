@@ -3,6 +3,7 @@ import type { ConsoleEntry } from '../../shared/types'
 import { engineLabel } from './engines'
 import { Canvas, type CanvasHandle } from './Canvas'
 import { FindBar } from './FindBar'
+import { AuthBar } from './AuthBar'
 import { Icon, ICONS } from './icons'
 
 const mac = window.swivel.platform === 'darwin'
@@ -180,6 +181,7 @@ export function App() {
         <div className={loading ? 'progress on' : 'progress'} role="progressbar" aria-label="Page loading" aria-busy={loading} />
       </form>
 
+      <AuthBar />
       {findOpen && <FindBar focusToken={findFocus} engine="canvas" onClose={() => setFindOpen(false)} />}
 
       <main className={url ? 'viewport with-canvas' : 'viewport'}>

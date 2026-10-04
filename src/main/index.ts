@@ -9,7 +9,7 @@ import { visualCheck } from './visual'
 import { installMenu } from './menu'
 import { windowedFirefoxStatus } from './firefox-window'
 import type { FindRequest } from '../shared/find'
-import type { CanvasFrame, InputEvent, LiveOptions, ViewRect, Viewport } from '../shared/types'
+import type { CanvasFrame, Credentials, InputEvent, LiveOptions, ViewRect, Viewport } from '../shared/types'
 
 // Electron's own security warnings would show up in the console of every page viewed in Chrome.
 process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = 'true'
@@ -100,6 +100,7 @@ ipcMain.handle('swivel:pick', (e, items: { id?: string; label: string; group?: b
     menu.popup({ window: win, x: Math.round(at.x), y: Math.round(at.y), callback: () => setTimeout(() => resolve(picked), 0) })
   })
 })
+ipcMain.on('swivel:auth-answer', (e, id: number, credentials: Credentials | null) => sessions.get(e.sender.id)?.answerAuth(id, credentials))
 ipcMain.handle('swivel:color-scheme', (e, scheme: 'light' | 'dark') => sessions.get(e.sender.id)?.setColorScheme(scheme))
 ipcMain.handle('swivel:clear-data', (e) => sessions.get(e.sender.id)?.clearData())
 ipcMain.on('swivel:input', (e, input: InputEvent) => sessions.get(e.sender.id)?.input(input))

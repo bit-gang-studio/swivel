@@ -144,3 +144,11 @@ button, input, select { font: inherit; color: inherit; }
 .start-urls button:hover { background: var(--hover); }
 .start-note { color: var(--muted); font-size: 13px; margin: 0; }
 
+/* Sign-in bar: a site asks for a username and password. In the app's own area, so no page covers it. */
+.authbar { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 10px; background: var(--surface); border-bottom: 1px solid var(--line); font-size: 13px; }
+.authbar strong { font-weight: 600; }
+.authbar .retry { color: var(--error); }
+.authbar input { height: 26px; width: 170px; padding: 0 10px; border: 1px solid var(--line); border-radius: 13px; background: var(--bg); font-size: 13px; outline: none; }
+.authbar input:focus { border-color: var(--accent); }
+.authbar button { height: 28px; padding: 0 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); font-size: 13px; cursor: pointer; }
+.authbar button[type='submit'] { background: var(--text); border-color: var(--text); color: var(--surface); font-weight: 600; }

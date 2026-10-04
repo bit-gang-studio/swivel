@@ -1,12 +1,13 @@
 import { randomUUID } from 'node:crypto'
-import { session, type BrowserWindow } from 'electron'
+import { dialog, session, type BrowserWindow } from 'electron'
 import type { FindRequest } from '../shared/find'
-import type { CanvasFrame, EngineId, InputEvent, LiveOptions, ViewEvents, ViewRect, Viewport } from '../shared/types'
+import type { CanvasFrame, Credentials, EngineId, InputEvent, LiveOptions, ViewEvents, ViewRect, Viewport } from '../shared/types'
 import { StreamedView, releaseContexts } from './live'
 import { NativeChrome } from './native-chrome'
 import { NativeSafari, webkitAddon } from './native-safari'
-import type { Emit, EmitLive, PageView } from './view'
+import type { Asker, Emit, EmitLive, PageView } from './view'
 import { log } from './log'
+import { CookieJar, electronStore, nativeWebKitStore, playwrightStore, type NativeCookies } from './cookies'
 
 const ENGINES: EngineId[] = ['chromium', 'firefox', 'webkit']
 
@@ -22,6 +23,9 @@ export function streamedEngines(): EngineId[] {
 
 const sameUrl = (a?: string, b?: string) => !!a && !!b && a.replace(/\/$/, '') === b.replace(/\/$/, '')
 const canvasKey = (id: string) => `canvas:${id}`
+const LABEL: Record<EngineId, string> = { chromium: 'Blink (Chrome)', firefox: 'Gecko (Firefox)', webkit: 'WebKit (Safari)' }
+let nextAsk = 1
+
 /**
  * One window's pages, all on the same URL and the window's own data.
  * - Single-page view: one live view per engine (keyed by engine), one shown. The others stay
@@ -54,15 +58,97 @@ export class EngineHost {
   constructor(win: BrowserWindow, emit: EmitLive) {
     this.win = win
     this.emit = emit
+    this.jar = this.newJar()
+  }
+
+  /** The window's cookies, kept the same in every engine (sign in once, signed in everywhere). */
+  private jar: CookieJar
+
+  private newJar(): CookieJar {
+    const jar = new CookieJar()
+    void jar.attach('chromium', electronStore(session.fromPartition(`swivel-${this.storageId}`)))
+    // WebKit on macOS has its own store; Playwright's engines join when their first frame opens.
+    const native = webkitAddon as unknown as Partial<NativeCookies> | null
+    if (native?.cookies && native.watchCookies) void jar.attach('webkit', nativeWebKitStore(native as NativeCookies, this.storageId))
+    return jar
+  }
+
+  // Answers the user gave this window: asked once, shared by every view, forgotten with its data.
+  private credentials = new Map<string, Promise<Credentials | null>>()
+  private credentialValues = new Map<string, Credentials>()
+  private authWaiting = new Map<number, (c: Credentials | null) => void>()
+  private trusted = new Map<string, Promise<boolean>>()
+  /** Test runs have nobody to answer: questions are declined. */
+  private unattended = !!process.env.SWIVEL_HIDDEN
+
+  private asker: Asker = {
+    credentials: (site, tried) => {
+      const known = this.credentials.get(site)
+      // A view that was refused with the stored answer needs a new one; anyone else reuses it.
+      if (known && !(tried && this.credentialValues.get(site) === tried)) return known
+      if (this.unattended) return Promise.resolve(null)
+      const id = nextAsk++
+      const answer = new Promise<Credentials | null>((resolve) => {
+        this.authWaiting.set(id, resolve)
+        this.emit('auth', { id, site, retry: !!tried })
+      }).then((c) => {
+        if (c) this.credentialValues.set(site, c)
+        else this.credentials.delete(site) // Cancelled: ask again next time.
+        return c
+      })
+      this.credentials.set(site, answer)
+      return answer
+    },
+    trust: (site, problem) => {
+      const known = this.trusted.get(site)
+      if (known) return known
+      if (this.unattended || this.win.isDestroyed()) return Promise.resolve(false)
+      const answer = dialog
+        .showMessageBox(this.win, {
+          type: 'warning',
+          message: `The certificate for ${site} isn't trusted`,
+          detail: `${problem}\n\nThis is normal for local development sites with self-signed certificates. Proceed only if you know this site.`,
+          buttons: ['Cancel', 'Proceed Anyway'],
+          defaultId: 0,
+          cancelId: 0
+        })
+        .then((r) => {
+          if (r.response !== 1) this.trusted.delete(site) // Declined: ask again next time.
+          return r.response === 1
+        })
+      this.trusted.set(site, answer)
+      return answer
+    },
+    dialog: async (kind, message, engine) => {
+      if (this.unattended || this.win.isDestroyed()) return false
+      const r = await dialog.showMessageBox(this.win, {
+        message: message || ' ',
+        detail: `From the page, in ${LABEL[engine]}.`,
+        buttons: kind === 'alert' ? ['OK'] : ['Cancel', 'OK'],
+        defaultId: kind === 'alert' ? 0 : 1,
+        cancelId: 0
+      })
+      return kind === 'alert' || r.response === 1
+    }
+  }
+
+  /** The UI's answer to an 'auth' question. */
+  answerAuth(id: number, credentials: Credentials | null): void {
+    this.authWaiting.get(id)?.(credentials)
+    this.authWaiting.delete(id)
   }
 
   /** Wipe this window's data: every view is rebuilt on fresh storage, on the same page. */
   clearData(): Promise<void> {
+    this.credentials.clear()
+    this.credentialValues.clear()
+    this.trusted.clear()
     const url = this.currentUrl()
     const frames = this.canvas ? [...this.canvas.values()] : undefined
     this.destroy()
     this.urls.clear()
     this.storageId = randomUUID()
+    this.jar = this.newJar()
     const { settings, active } = this
     if (settings && url) this.settings = { ...settings, url }
     this.clearing = frames && this.settings ? this.setCanvas(frames, this.settings) : settings && active ? this.start({ ...this.settings!, engine: active }) : Promise.resolve()
@@ -87,10 +173,10 @@ export class EngineHost {
     const emit: Emit = (event, payload) => this.fromView(key, engine, event, payload)
     const view =
       engine === 'chromium'
-        ? new NativeChrome(this.win, emit, `swivel-${this.storageId}`)
+        ? new NativeChrome(this.win, emit, `swivel-${this.storageId}`, this.asker)
         : engine === 'webkit' && webkitAddon
-          ? new NativeSafari(this.win, emit, webkitAddon, this.storageId)
-          : new StreamedView(engine, emit, this.storageId, this.win)
+          ? new NativeSafari(this.win, emit, webkitAddon, this.storageId, this.asker)
+          : new StreamedView(engine, emit, this.storageId, this.asker, this.win, (context) => this.jar.attach(engine, playwrightStore(context)))
     this.views.set(key, view)
     return view
   }
@@ -154,11 +240,14 @@ export class EngineHost {
   /** A shown view moved on its own (a link, a form, a script): bring every other view along. */
   private follow(from: string, url: string): void {
     if (this.settings) this.settings = { ...this.settings, url }
-    for (const [key, view] of this.views) {
-      if (key === from || sameUrl(this.urls.get(key), url)) continue
-      this.urls.set(key, url)
-      void view.navigate(url)
-    }
+    const followers = [...this.views].filter(([key]) => key !== from && !sameUrl(this.urls.get(key), url))
+    for (const [key] of followers) this.urls.set(key, url)
+    // The move may come from a sign-in: its cookies reach the other engines first, or they'd
+    // load the page signed out.
+    const leader = this.views.get(from)?.engine
+    void (leader ? this.jar.settle(leader) : Promise.resolve()).then(() => {
+      for (const [key, view] of followers) if (this.views.get(key) === view) void view.navigate(url)
+    })
   }
 
   /** Single-page view: show an engine and apply size and colour scheme to every view, without reloading. */
@@ -324,6 +413,7 @@ export class EngineHost {
   /** Close every view and drop this window's data. */
   destroy(): void {
     clearTimeout(this.resizeLater)
+    this.jar.dispose()
     for (const view of this.views.values()) view.destroy()
     this.views.clear()
     this.canvas = undefined
