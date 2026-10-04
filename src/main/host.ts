@@ -11,6 +11,7 @@ import { NativeChrome } from './native-chrome'
 import { NativeSafari, webkitAddon } from './native-safari'
 import type { Asker, Emit, EmitLive, PageView } from './view'
 import { log } from './log'
+import { SYNC_PREFIX, syncApplyScript, syncInstallScript, type SyncMessage } from '../shared/sync'
 import { CookieJar, electronStore, nativeWebKitStore, playwrightStore, type NativeCookies } from './cookies'
 
 const ENGINES: EngineId[] = ['chromium', 'firefox', 'webkit']
@@ -256,10 +257,13 @@ export class EngineHost {
   private fromView<K extends keyof ViewEvents>(key: string, engine: EngineId, event: K, payload: ViewEvents[K]): void {
     if (event === 'console') {
       const entry = payload as ViewEvents['console']
+      if (entry.text.startsWith(SYNC_PREFIX)) return this.sync(key, entry.text.slice(SYNC_PREFIX.length))
       this.onConsole?.(engine, entry.text)
       return this.emit('console', entry)
     }
     if (event === 'url') this.urls.set(key, payload as string)
+    // Every page gets the sync script, again after each load.
+    if (event === 'url' || (event === 'loading' && payload === false)) this.views.get(key)?.run(syncInstallScript)
     if (event === 'url' || event === 'error') log('view', key, engine, event, String(payload).slice(0, 120))
     // Per-view events go to the UI with the view's key; the UI shows them where that view is.
     if (event === 'frame') {
@@ -272,6 +276,22 @@ export class EngineHost {
     if (event === 'loading' && payload === false) this.broadcasting = false
     if (event === 'url' && !this.broadcasting) this.follow(key, payload as string)
     this.emit(event as 'url', payload as string)
+  }
+
+  /** Whether a scroll, click or typing in one frame is repeated in the others. */
+  syncOn = true
+
+  /** A frame reports what the user did in its page: repeat it in the other frames. */
+  private sync(from: string, json: string): void {
+    if (!this.syncOn || !this.canvas) return
+    let message: SyncMessage
+    try {
+      message = JSON.parse(json) as SyncMessage
+    } catch {
+      return
+    }
+    const script = syncApplyScript(message)
+    for (const [key, view] of this.views) if (key !== from && key.startsWith('canvas:')) view.run(script)
   }
 
   /** A shown view moved on its own (a link, a form, a script): bring every other view along. */

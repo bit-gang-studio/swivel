@@ -34,6 +34,8 @@ export interface PageView {
   /** Where the page area is in the window, and the area it may draw in. Native views place themselves there. */
   setRect(rect: ViewRect): Promise<void>
   find(req: FindRequest): Promise<void>
+  /** Run script in the page (frame sync, and tests). */
+  run(script: string): void
   /** Mouse and keyboard input, for views that don't receive it natively. */
   input(e: InputEvent): void
   destroy(): void

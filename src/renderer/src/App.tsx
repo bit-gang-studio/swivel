@@ -34,6 +34,8 @@ export function App() {
   const [findFocus, setFindFocus] = useState(0)
   const addressInput = useRef<HTMLInputElement>(null)
   const [dark, setDark] = useState(false)
+  /** Scroll, click or type in one frame and the others repeat it. */
+  const [sync, setSync] = useState(true)
   const canvas = useRef<CanvasHandle>(null)
   const addButton = useRef<HTMLButtonElement>(null)
   const [logs, setLogs] = useState<ConsoleEntry[]>([])
@@ -156,6 +158,19 @@ export function App() {
         </label>
         <button ref={addButton} type="button" className="icon" aria-label="Add frame" title={`Add a frame: pick a device (${keys('Mod+T')})`} disabled={!url} onClick={addFrame}>
           <Icon d={ICONS.plus} />
+        </button>
+        <button
+          type="button"
+          className="icon"
+          aria-label="Sync frames"
+          title="Sync: scroll, click or type in one frame and the others repeat it"
+          aria-pressed={sync}
+          onClick={() => {
+            setSync(!sync)
+            window.swivel.setSync(!sync)
+          }}
+        >
+          <Icon d={ICONS.sync} />
         </button>
         <button type="button" className="icon" aria-label="Dark mode" title={`Dark mode: show pages in their dark colour scheme (${keys('Shift+Mod+D')})`} aria-pressed={dark} onClick={() => setDark(!dark)}>
           <Icon d={ICONS.moon} />

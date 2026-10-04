@@ -1,5 +1,6 @@
 // Drives the built app: on the canvas, with one frame per engine, click, type, scroll and find in
-// each frame, leave a page that never finishes loading, and follow a link from one frame.
+// each frame, leave a page that never finishes loading, repeat one frame's scroll, click and
+// typing in the others (sync), and follow a link from one frame.
 // Run: npm run build && node scripts/e2e-live.mjs
 import http from 'node:http'
 import { withApp } from './app-window.mjs'
@@ -64,6 +65,11 @@ await withApp(async ({ app, win }) => {
   await win.getByRole('button', { name: 'Browsers', exact: true }).click()
   await win.waitForSelector('.frame[data-engine="webkit"]')
   const natives = await win.evaluate(() => window.swivel.nativeEngines)
+  // Input the way the OS sends it to the Blink frame (a native view), at page coordinates.
+  const blinkInput = (events) => app.evaluate((_, events) => globalThis.swivelHost.frameView('chromium').testInput(events), events)
+  // Sync off while each frame's own input is checked, or one frame's input would pass for all.
+  const sync = win.getByRole('button', { name: 'Sync frames' })
+  await sync.click()
 
   const results = []
   for (const [engine, tag] of ENGINES) {
@@ -86,7 +92,7 @@ await withApp(async ({ app, win }) => {
     if (engine === 'chromium') {
       // A native view: real input goes straight to it, so inject input through Electron, the way
       // the OS does, at page coordinates.
-      const send = (events) => app.evaluate((_, events) => globalThis.swivelHost.frameView('chromium').testInput(events), events)
+      const send = blinkInput
       await send([{ type: 'mouseDown', x: 400, y: 20, button: 'left', clickCount: 1 }, { type: 'mouseUp', x: 400, y: 20, button: 'left', clickCount: 1 }])
       clicked = await seen(tag, 'clicked')
       await send([
@@ -156,6 +162,27 @@ await withApp(async ({ app, win }) => {
   await go(PAGE.replace("console.log('ready')", "console.log('ready-after-slow')"))
   for (const r of results) r.leftSlowPageMs = (await seen(r.engine, 'ready-after-slow', 10_000)) ? Date.now() - t0 : -1
 
+  // Sync: a click, typing and a scroll in the Blink frame are repeated in the other frames.
+  await sync.click()
+  const marked = PAGE.replace("console.log('ready')", "console.log('sync-ready')").replaceAll("'clicked'", "'sync-clicked'").replaceAll("'typed'", "'sync-typed'")
+  await go(marked)
+  for (const [, tag] of ENGINES) await seen(tag, 'sync-ready', 20_000)
+  await win.waitForTimeout(1000)
+  await blinkInput([{ type: 'mouseDown', x: 400, y: 20, button: 'left', clickCount: 1 }, { type: 'mouseUp', x: 400, y: 20, button: 'left', clickCount: 1 }])
+  await blinkInput([
+    { type: 'mouseDown', x: 400, y: 150, button: 'left', clickCount: 1 },
+    { type: 'mouseUp', x: 400, y: 150, button: 'left', clickCount: 1 },
+    { type: 'char', keyCode: 'H' },
+    { type: 'char', keyCode: 'i' }
+  ])
+  await blinkInput([{ type: 'mouseWheel', x: 400, y: 300, deltaX: 0, deltaY: -600 }])
+  await win.waitForTimeout(1500)
+  for (const [engine] of ENGINES) await run(engine, "console.log('sync-scrolled:' + (scrollY > 0))")
+  for (const r of results) {
+    r.synced = (await seen(r.engine, 'sync-clicked')) && (await seen(r.engine, 'sync-typed')) && (await seen(r.engine, 'sync-scrolled:true', 5000))
+    if (!r.synced) console.log(`${r.engine} did not repeat the Blink frame's click, typing and scroll`)
+  }
+
   // Follow: click a link in the Gecko frame (input goes through Swivel on every OS); the other
   // frames must go there too.
   await win.waitForTimeout(1000)
@@ -167,7 +194,7 @@ await withApp(async ({ app, win }) => {
   const followFailed = Object.values(followed).some((ok) => !ok)
 
   if (process.env.SHOT) await win.screenshot({ path: process.env.SHOT })
-  const failed = followFailed || results.some((r) => !r.ready || !r.sized || !r.clicked || !r.typed || !r.scrolled || !r.pointer || !r.found || r.leftSlowPageMs < 0)
+  const failed = followFailed || results.some((r) => !r.ready || !r.sized || !r.clicked || !r.typed || !r.scrolled || !r.pointer || !r.found || !r.synced || r.leftSlowPageMs < 0)
   if (failed) {
     console.log('address:', await win.getByLabel('Address').inputValue())
     console.log('status:', await win.locator('.status').allInnerTexts())

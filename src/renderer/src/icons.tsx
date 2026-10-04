@@ -12,6 +12,7 @@ export const ICONS = {
   forward: 'M5 12h14M12 5l7 7-7 7',
   reload: 'M21 12a9 9 0 1 1-2.6-6.4L21 8M21 3v5h-5',
   plus: 'M12 5v14M5 12h14',
+  sync: 'M7 7h13M17 4l3 3-3 3M17 17H4M7 14l-3 3 3 3',
   moon: 'M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z',
   console: 'M4 17l6-5-6-5M12 19h8',
   trash: 'M4 7h16M10 11v6M14 11v6M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-12M9 7V4h6v3',

@@ -94,7 +94,11 @@ button, input, select { font: inherit; color: inherit; }
 .canvas.focus { cursor: default; background-image: none; }
 
 .frame { position: absolute; }
-.frame header { height: 30px; min-width: max-content; display: flex; align-items: center; gap: 2px; cursor: move; font-size: 12px; white-space: nowrap; }
+/* A header is cut to its frame's width, so neighbours never overlap when zoomed far out; the one
+   under the pointer (or selected) shows in full, over its neighbours. */
+.frame header { height: 30px; max-width: 100%; overflow: hidden; display: flex; align-items: center; gap: 2px; cursor: move; font-size: 12px; white-space: nowrap; }
+.frame:hover header, .frame.selected header { max-width: none; width: max-content; min-width: 100%; overflow: visible; position: relative; z-index: 2; background: var(--bg); border-radius: 6px; }
+.frame:hover { z-index: 3; }
 .frame header select, .frame header button { height: 24px; border: none; border-radius: 6px; padding: 0 6px; font-size: 12px; background: transparent; cursor: pointer; display: inline-flex; align-items: center; }
 .frame header select { font-weight: 600; }
 .frame header .size { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-variant-numeric: tabular-nums; }

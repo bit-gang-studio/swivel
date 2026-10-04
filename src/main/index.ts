@@ -83,6 +83,10 @@ ipcMain.handle('swivel:canvas', (e, frames: CanvasFrame[], page: { url: string; 
 ipcMain.handle('swivel:frame-rect', (e, id: string, rect: ViewRect) => sessions.get(e.sender.id)?.setFrameRect(id, rect))
 ipcMain.on('swivel:frame-input', (e, id: string, input: InputEvent) => sessions.get(e.sender.id)?.frameInput(id, input))
 ipcMain.on('swivel:frame-visible', (e, id: string, visible: boolean) => sessions.get(e.sender.id)?.setFrameVisible(id, visible))
+ipcMain.on('swivel:sync', (e, on: boolean) => {
+  const host = sessions.get(e.sender.id)
+  if (host) host.syncOn = on
+})
 ipcMain.on('swivel:frame-select', (e, id: string | undefined) => {
   const host = sessions.get(e.sender.id)
   if (host) host.selectedFrame = id
