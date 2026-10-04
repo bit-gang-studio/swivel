@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu, shell } from 'electron'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { closeAllBrowsers, prewarmBrowsers } from './live'
@@ -77,9 +77,29 @@ ipcMain.on('swivel:native-engines', (e) => (e.returnValue = nativeEngines()))
 ipcMain.handle('swivel:find', (e, req: FindRequest) => sessions.get(e.sender.id)?.find(req))
 ipcMain.handle('swivel:resize', (e, viewport: Viewport) => sessions.get(e.sender.id)?.resize(viewport))
 ipcMain.handle('swivel:rect', (e, rect: ViewRect) => sessions.get(e.sender.id)?.setRect(rect))
-ipcMain.handle('swivel:canvas', (e, frames: CanvasFrame[]) => sessions.get(e.sender.id)?.setCanvas(frames))
+ipcMain.handle('swivel:canvas', (e, frames: CanvasFrame[], page: { url: string; colorScheme: 'light' | 'dark' }) => sessions.get(e.sender.id)?.setCanvas(frames, page))
 ipcMain.handle('swivel:frame-rect', (e, id: string, rect: ViewRect) => sessions.get(e.sender.id)?.setFrameRect(id, rect))
 ipcMain.on('swivel:frame-input', (e, id: string, input: InputEvent) => sessions.get(e.sender.id)?.frameInput(id, input))
+ipcMain.on('swivel:frame-visible', (e, id: string, visible: boolean) => sessions.get(e.sender.id)?.setFrameVisible(id, visible))
+ipcMain.on('swivel:frame-select', (e, id: string | undefined) => {
+  const host = sessions.get(e.sender.id)
+  if (host) host.selectedFrame = id
+})
+// A native menu: it draws above native page views, which a menu in the UI can't.
+ipcMain.handle('swivel:pick', (e, items: { id?: string; label: string; group?: boolean }[], at: { x: number; y: number }) => {
+  const win = BrowserWindow.fromWebContents(e.sender)
+  if (!win) return null
+  return new Promise<string | null>((resolve) => {
+    let picked: string | null = null
+    const menu = Menu.buildFromTemplate(
+      items.map((item) =>
+        item.label === '-' ? { type: 'separator' as const } : { label: item.label, enabled: !item.group, click: () => (picked = item.id ?? null) }
+      )
+    )
+    // The click handler runs after the menu closes on some platforms: answer on the next tick.
+    menu.popup({ window: win, x: Math.round(at.x), y: Math.round(at.y), callback: () => setTimeout(() => resolve(picked), 0) })
+  })
+})
 ipcMain.handle('swivel:color-scheme', (e, scheme: 'light' | 'dark') => sessions.get(e.sender.id)?.setColorScheme(scheme))
 ipcMain.handle('swivel:clear-data', (e) => sessions.get(e.sender.id)?.clearData())
 ipcMain.on('swivel:input', (e, input: InputEvent) => sessions.get(e.sender.id)?.input(input))

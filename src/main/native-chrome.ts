@@ -4,6 +4,9 @@ import type { Emit, PageView } from './view'
 import type { FindRequest } from '../shared/find'
 
 
+/** Chromium can't zoom a page out further than this. */
+const MIN_ZOOM = 0.25
+
 const LEVELS = { debug: 'debug', info: 'log', warning: 'warning', error: 'error' } as const
 
 /**
@@ -34,7 +37,7 @@ export class NativeChrome implements PageView {
   private create(): WebContentsView {
     const view = new WebContentsView({
       webPreferences: {
-        partition: this.partition, // The Swivel profile's own storage; logins survive restarts.
+        partition: this.partition, // This window's own storage, in memory only.
         sandbox: true,
         contextIsolation: true,
         nodeIntegration: false,
@@ -165,28 +168,44 @@ export class NativeChrome implements PageView {
   }
 
   /**
-   * Partly outside its clip area (a canvas frame under the toolbar)? A Chromium view can't be cut
-   * off on macOS (Electron doesn't clip it), so it's swapped for a still image of itself, which
-   * the UI clips, until it's fully in view again.
+   * Two cases a live Chromium view can't show, so it's swapped for a still image of itself, which
+   * the UI clips and scales, until it can be live again:
+   * - partly outside its clip area (a canvas frame under the toolbar): Electron doesn't clip a
+   *   view on macOS;
+   * - zoomed out below 25%: Chromium can't zoom a page out further. The image is refreshed
+   *   about once a second, from the hidden view kept at 25%.
    */
   private cut = false
+  private refresh?: ReturnType<typeof setInterval>
+
+  /** Smaller on the canvas than Chromium can draw it. */
+  private tiny(): boolean {
+    return this.scale() < MIN_ZOOM - 0.001
+  }
 
   private updateCut(): void {
     const r = this.rect
     const c = r?.clip
     // Only edges inside the window count: the window's own edges already cut native views off.
     const w = this.win.getContentBounds()
+    const tiny = this.tiny()
     const cut =
-      !!r &&
-      !!c &&
-      ((c.x > 0.5 && r.x < c.x - 0.5) ||
-        (c.y > 0.5 && r.y < c.y - 0.5) ||
-        (c.x + c.width < w.width - 0.5 && r.x + r.width > c.x + c.width + 0.5) ||
-        (c.y + c.height < w.height - 0.5 && r.y + r.height > c.y + c.height + 0.5))
+      tiny ||
+      (!!r &&
+        !!c &&
+        ((c.x > 0.5 && r.x < c.x - 0.5) ||
+          (c.y > 0.5 && r.y < c.y - 0.5) ||
+          (c.x + c.width < w.width - 0.5 && r.x + r.width > c.x + c.width + 0.5) ||
+          (c.y + c.height < w.height - 0.5 && r.y + r.height > c.y + c.height + 0.5)))
     if (cut !== this.cut) {
       this.cut = cut
       if (cut) void this.swapForSnapshot()
       else this.emit('snapshot', null)
+    }
+    if (tiny && !this.refresh) this.refresh = setInterval(() => void this.swapForSnapshot(), 1200)
+    if (!tiny && this.refresh) {
+      clearInterval(this.refresh)
+      this.refresh = undefined
     }
     if (!cut && this.opts && this.active) this.view?.setVisible(true)
   }
@@ -195,9 +214,10 @@ export class NativeChrome implements PageView {
     // Let a new size or zoom paint first, or the image shows the old layout.
     await new Promise((r) => setTimeout(r, 100))
     if (!this.cut) return
-    const image = await this.view?.webContents.capturePage().catch(() => undefined)
+    // stayHidden: the view may already be hidden (a refresh); capturing must not show it.
+    const image = await this.view?.webContents.capturePage(undefined, { stayHidden: true }).catch(() => undefined)
     if (!this.cut) return
-    this.emit('snapshot', image && !image.isEmpty() ? image.toDataURL() : null)
+    if (image && !image.isEmpty()) this.emit('snapshot', image.toDataURL())
     this.view?.setVisible(false)
   }
 
@@ -206,7 +226,9 @@ export class NativeChrome implements PageView {
   }
 
   private bounds(rect: ViewRect) {
-    return { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) }
+    // Below Chromium's smallest zoom the (hidden) view stays at that zoom's size, to be captured.
+    const grow = this.tiny() ? MIN_ZOOM / this.scale() : 1
+    return { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width * grow), height: Math.round(rect.height * grow) }
   }
 
   private applyZoom(): void {
@@ -215,7 +237,7 @@ export class NativeChrome implements PageView {
     // Within a rounding error of 1 (window and page sizes arrive separately): stay at 1, so a
     // resize doesn't flicker the zoom.
     const scale = this.scale()
-    wc.setZoomFactor(Math.abs(scale - 1) < 0.01 ? 1 : scale)
+    wc.setZoomFactor(Math.abs(scale - 1) < 0.01 ? 1 : Math.max(MIN_ZOOM, scale))
   }
 
   private async applyEmulation(): Promise<void> {
@@ -246,6 +268,7 @@ export class NativeChrome implements PageView {
   }
 
   destroy(): void {
+    clearInterval(this.refresh)
     if (!this.view) return
     this.win.contentView.removeChildView(this.view)
     this.view.webContents.close()

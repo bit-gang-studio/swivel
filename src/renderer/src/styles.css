@@ -31,10 +31,10 @@ body { margin: 0; background: var(--bg); }
 button, input, select { font: inherit; color: inherit; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 
-.app { display: grid; grid-template-rows: auto 1fr; height: 100vh; }
-.app.console-open { grid-template-rows: auto 1fr 200px; }
-.app.find-open { grid-template-rows: auto auto 1fr; }
-.app.find-open.console-open { grid-template-rows: auto auto 1fr 200px; }
+.app { display: flex; flex-direction: column; height: 100vh; }
+.app > * { flex-shrink: 0; }
+.app > main { flex: 1 1 0; }
+.app > .console { height: 200px; box-sizing: border-box; }
 
 .toolbar { position: relative; display: flex; align-items: center; gap: 4px; height: 40px; padding: 0 8px; background: var(--surface); border-bottom: 1px solid var(--line); font-size: 13px; }
 .toolbar button, .toolbar select { height: 28px; border: none; border-radius: 14px; background: transparent; cursor: pointer; }
@@ -85,20 +85,62 @@ button, input, select { font: inherit; color: inherit; }
 .findbar button { height: 28px; width: 28px; padding: 0; border: none; border-radius: 14px; background: transparent; display: grid; place-items: center; cursor: pointer; }
 .findbar button:hover { background: var(--hover); }
 
-/* Canvas: frames side by side. Native pages draw over the page area of each frame. */
+/* Canvas: frames side by side. Native pages draw over the page area of each frame, so every
+   control sits outside a page: in a frame's header, on its outer edges, or in the bar below. */
 .viewport.with-canvas { padding: 0; display: block; }
-.canvas { position: absolute; inset: 0; overflow: hidden; background: var(--bg); background-image: radial-gradient(var(--line) 1px, transparent 1px); background-size: 24px 24px; cursor: grab; touch-action: none; }
+.canvas-wrap { position: absolute; inset: 0; display: grid; grid-template-rows: 1fr auto; }
+.canvas { position: relative; overflow: hidden; min-height: 0; background: var(--bg); background-image: radial-gradient(var(--line) 1px, transparent 1px); background-size: 24px 24px; cursor: grab; touch-action: none; display: flex; align-items: center; justify-content: center; }
 .canvas:active { cursor: grabbing; }
+.canvas.focus { cursor: default; background-image: none; }
+
 .frame { position: absolute; }
-.frame header { height: 30px; display: flex; align-items: center; gap: 4px; padding: 0 2px; cursor: move; font-size: 12px; }
-.frame header select { height: 22px; border: none; border-radius: 11px; padding: 0 6px; font-size: 12px; background: var(--surface); cursor: pointer; }
-.frame header button { margin-left: auto; width: 22px; height: 22px; border: none; border-radius: 11px; background: transparent; cursor: pointer; font-size: 15px; line-height: 1; color: var(--muted); }
+.frame header { height: 30px; min-width: max-content; display: flex; align-items: center; gap: 2px; cursor: move; font-size: 12px; white-space: nowrap; }
+.frame header select, .frame header button { height: 24px; border: none; border-radius: 6px; padding: 0 6px; font-size: 12px; background: transparent; cursor: pointer; display: inline-flex; align-items: center; }
+.frame header select { font-weight: 600; }
+.frame header .size { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-variant-numeric: tabular-nums; }
+.frame header .size.snapped { color: var(--accent); font-weight: 600; }
 .frame header button:hover, .frame header select:hover { background: var(--hover); }
+.frame header .spacer { flex: 1; min-width: 6px; }
+.frame header button[aria-label] { width: 24px; padding: 0; justify-content: center; color: var(--muted); visibility: hidden; }
+.frame:hover header button[aria-label], .frame.selected header button[aria-label] { visibility: visible; }
+.frame header .size-edit { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 4px; border: 1px solid var(--accent); border-radius: 6px; background: var(--surface); color: var(--muted); }
+.frame header .size-edit input { width: 44px; border: none; outline: none; background: transparent; text-align: center; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px; }
 .frame-body { position: relative; overflow: hidden; background: #fff; box-shadow: 0 0 0 1px var(--line); }
+.frame.selected .frame-body { box-shadow: 0 0 0 2px var(--accent); }
 .frame-body .live-area, .frame-body .live { width: 100%; height: 100%; border: none; border-radius: 0; }
 .frame-snapshot { position: absolute; inset: 0; width: 100%; height: 100%; }
-.frame-handle { position: absolute; width: 14px; height: 14px; margin: -4px 0 0 -4px; cursor: nwse-resize; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); }
-.frame-resize-outline { position: absolute; left: 0; border: 1px dashed var(--accent); pointer-events: none; }
-.canvas-tools { position: absolute; left: 12px; bottom: 12px; display: flex; gap: 6px; align-items: center; font-size: 12px; cursor: default; }
-.canvas-tools select, .canvas-tools button { height: 28px; border: 1px solid var(--line); border-radius: 14px; padding: 0 10px; background: var(--surface); font-size: 12px; cursor: pointer; }
-.canvas-tools .zoom { color: var(--muted); padding: 0 6px; }
+.frame-edge { position: absolute; }
+.frame-edge.e { width: 8px; cursor: ew-resize; }
+.frame-edge.s { height: 8px; cursor: ns-resize; }
+.frame-handle { position: absolute; width: 12px; height: 12px; cursor: nwse-resize; }
+.frame.selected .frame-handle, .frame:hover .frame-handle { border-right: 2px solid var(--accent); border-bottom: 2px solid var(--accent); margin: -4px 0 0 -4px; }
+.frame-resize-outline { position: absolute; left: 0; border: 1px dashed var(--muted); pointer-events: none; }
+.frame-resize-outline.snapped { border-color: var(--accent); border-style: solid; }
+
+.canvas-bar { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 10px; border-top: 1px solid var(--line); background: var(--surface); font-size: 12px; }
+.canvas-bar .spacer { flex: 1; }
+.canvas-bar .muted, .canvas-bar .zoom { color: var(--muted); font-variant-numeric: tabular-nums; }
+.canvas-bar button { height: 26px; border: none; border-radius: 13px; padding: 0 10px; background: transparent; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; }
+.canvas-bar button:hover:not(:disabled) { background: var(--hover); }
+.canvas-bar button:disabled { color: var(--muted); cursor: default; }
+.canvas-bar button[aria-pressed='true'] { background: var(--text); color: var(--surface); font-weight: 600; }
+.canvas-bar .pill { border: 1px solid var(--line); }
+.canvas-bar .pill.round { width: 26px; padding: 0; justify-content: center; }
+.canvas-bar .sets, .canvas-bar .zoomer { display: flex; align-items: center; gap: 2px; }
+.canvas-bar .set { display: inline-flex; align-items: center; }
+.canvas-bar .set .remove { width: 18px; padding: 0; margin-left: -4px; justify-content: center; color: var(--muted); }
+.canvas-bar .save { color: var(--muted); }
+.canvas-bar input { height: 24px; width: 130px; padding: 0 10px; border: 1px solid var(--accent); border-radius: 12px; font-size: 12px; background: var(--bg); outline: none; }
+
+.toolbar .divider { width: 1px; height: 18px; background: var(--line); margin: 0 2px; }
+.toolbar button.danger { color: var(--error); }
+.toolbar button:disabled { opacity: 0.4; cursor: default; }
+
+.start { display: flex; flex-direction: column; align-items: center; gap: 16px; }
+.start-hint { color: var(--muted); font-size: 14px; margin: 0; }
+.start .start-hint { color: var(--text); font-size: 20px; font-weight: 600; }
+.start-urls { display: flex; gap: 8px; }
+.start-urls button { height: 32px; padding: 0 14px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 13px; cursor: pointer; }
+.start-urls button:hover { background: var(--hover); }
+.start-note { color: var(--muted); font-size: 13px; margin: 0; }
+

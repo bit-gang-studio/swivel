@@ -13,7 +13,7 @@ The renderer never touches Playwright directly. It calls `window.swivel.*`, whic
 
 ## Engines
 
-Each window has an `EngineHost` (`src/main/host.ts`) holding one live `PageView` (`view.ts`) per engine, all kept loaded and on the same URL. One is shown and leads: when it navigates on its own, the others follow in the background. Typed URLs, back, forward and reload go to every view; size and dark mode apply without reloading. Views are independent instances, so a window can later show several at once. Each window has its own data (cookies, storage, cache) in every engine, in memory only and shared with no other window: a Chromium partition, a WebKit data store, and a Playwright context per engine. Clear data rebuilds the window's views on fresh storage; closing the window drops it.
+Each window has an `EngineHost` (`src/main/host.ts`) holding one live `PageView` (`view.ts`) per canvas frame. The canvas (`src/renderer/src/Canvas.tsx`) is the whole UI: frames side by side, each with its own engine and screen size, all on the same URL. When one frame navigates on its own, the others follow. Typed URLs, back, forward and reload go to every frame; size and dark mode apply without reloading. Frames pan, zoom (10–100%), move and resize; sets (`devices.ts`) are saved groups of frames. Native pages draw over the app's own UI, so every control sits outside a page, and menus are native. Each window has its own data (cookies, storage, cache) in every engine, in memory only and shared with no other window: a Chromium partition, a WebKit data store, and a Playwright context per engine. Clear data rebuilds the window's views on fresh storage; closing the window drops it. What each frame was asked to do is logged to `swivel.log` in the app's log folder.
 
 Backends:
 
@@ -25,7 +25,7 @@ Backends:
 
 **Native** views are laid over the page area, so they are real-time, like a normal browser. The page lays out at the viewport width and is scaled to fit:
 
-- Chrome: the view fits the page area and zoom sets the layout width. Zoom is per site, so the view starts with the right default zoom and it is reapplied after navigation. On Windows a site's first visit can briefly reflow. Dark mode uses the DevTools protocol, but not while a test runner is attached over remote debugging (that crashes Electron).
+- Chrome: the view fits the page area and zoom sets the layout width. Zoom is per site, so the view starts with the right default zoom and it is reapplied after navigation. On Windows a site's first visit can briefly reflow. Dark mode uses the DevTools protocol, but not while a test runner is attached over remote debugging (that crashes Electron). A frame cut off by the app's own UI, or zoomed out below 25% (Chromium's limit), shows a still image of itself instead: Electron can't clip a view on macOS.
 - Safari: the WKWebView is full viewport size inside a clipping container whose bounds are the viewport size, so AppKit scales it. Page zoom stops at 0.5, so it isn't used.
 
 A DevTools size override draws at full size outside the view, so it isn't used either.

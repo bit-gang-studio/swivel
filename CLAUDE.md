@@ -20,7 +20,7 @@ npm run build:native   # macOS: build the native module (Safari view, window mir
 
 - Keep docs absolutely minimal.
 - The renderer never imports Playwright or Node. Go through the preload API.
-- The UI names engines Chromium, Firefox, WebKit. Use `engineLabel`.
+- The UI names engines by their own names: Blink (Chrome), Gecko (Firefox), WebKit (Safari). Use `engineLabel`.
 - No OS-specific code paths without a fallback for the other two.
 - Don't launch the app on the user's Mac for testing (crash dialogs, stray windows). Run app tests in CI with the "Live view check" workflow.
 - Debug experiments in CI must not fail the run (use continue-on-error); failures email the user.

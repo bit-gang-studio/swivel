@@ -1,30 +1,14 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import type { ConsoleEntry, EngineId, Viewport } from '../../shared/types'
-import { ENGINES, SIZES, engineHint, engineLabel } from './engines'
-import { LiveView } from './LiveView'
-import { Canvas } from './Canvas'
-import { NativeView } from './NativeView'
+import type { ConsoleEntry } from '../../shared/types'
+import { engineLabel } from './engines'
+import { Canvas, type CanvasHandle } from './Canvas'
 import { FindBar } from './FindBar'
+import { Icon, ICONS } from './icons'
 
-/** 16px stroke icons, drawn in the current text colour. */
-function Icon({ d }: { d: string }) {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d={d} />
-    </svg>
-  )
-}
-const ICONS = {
-  back: 'M19 12H5M12 19l-7-7 7-7',
-  forward: 'M5 12h14M12 5l7 7-7 7',
-  reload: 'M21 12a9 9 0 1 1-2.6-6.4L21 8M21 3v5h-5',
-  moon: 'M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z',
-  console: 'M4 17l6-5-6-5M12 19h8',
-  canvas: 'M3 3h8v8H3zM13 3h8v5h-8zM13 10h8v11h-8zM3 13h8v8H3z',
-  trash: 'M4 7h16M10 11v6M14 11v6M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-12M9 7V4h6v3'
-}
-
-const platform = window.swivel.platform
+const mac = window.swivel.platform === 'darwin'
+/** A shortcut as shown in a hover label. */
+const keys = (k: string) => (mac ? k.replace('Mod+', '⌘').replace('Shift+', '⇧').replace('Alt+', '⌥') : k.replace('Mod+', 'Ctrl+'))
+const START_URLS = ['localhost:3000', 'localhost:5173', 'localhost:8080']
 
 function normalizeUrl(input: string): string {
   const trimmed = input.trim()
@@ -34,13 +18,9 @@ function normalizeUrl(input: string): string {
 }
 
 export function App() {
-  const [address, setAddress] = useState('https://example.com')
-  const [url, setUrl] = useState('https://example.com')
-  const [engine, setEngine] = useState<EngineId>('chromium')
-  // 'fill' uses the whole page area at 1:1, like a normal browser. Otherwise an index into SIZES.
-  const [size, setSize] = useState<'fill' | number>('fill')
-  const [area, setArea] = useState<Viewport | null>(null)
-  const areaRef = useRef<HTMLElement>(null)
+  // A new window starts empty: nothing loads until a URL is entered.
+  const [address, setAddress] = useState('')
+  const [url, setUrl] = useState('')
   const [consoleOpen, setConsoleOpen] = useState(() => {
     try {
       return localStorage.getItem('swivel.console') === 'open'
@@ -53,14 +33,11 @@ export function App() {
   const [findFocus, setFindFocus] = useState(0)
   const addressInput = useRef<HTMLInputElement>(null)
   const [dark, setDark] = useState(false)
-  /** Single page, or the canvas: several frames side by side. */
-  const [canvas, setCanvas] = useState(false)
+  const canvas = useRef<CanvasHandle>(null)
+  const addButton = useRef<HTMLButtonElement>(null)
   const [logs, setLogs] = useState<ConsoleEntry[]>([])
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
-  const viewport = size === 'fill' ? area : SIZES[size].viewport
-  const engineRef = useRef(engine)
-  engineRef.current = engine
   const consoleOpenRef = useRef(consoleOpen)
   consoleOpenRef.current = consoleOpen
   // Like a real browser, never overwrite the address bar while the user is typing in it.
@@ -83,46 +60,18 @@ export function App() {
     return () => offs.forEach((off) => off())
   }, [])
 
-  // Measure the page area, for "Fill window". Native engines follow a window resize live, like a
-  // real browser; streamed engines (each resize costs a browser round trip) wait for it to settle.
+  // Dark mode goes to every frame.
   useEffect(() => {
-    const el = areaRef.current
-    if (!el) return
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const measure = () => setArea({ width: Math.max(200, Math.floor(el.clientWidth)), height: Math.max(200, Math.floor(el.clientHeight)) })
-    measure()
-    const observer = new ResizeObserver(() => {
-      clearTimeout(timer)
-      if (window.swivel.nativeEngines.includes(engineRef.current)) measure()
-      else timer = setTimeout(measure, 120)
-    })
-    observer.observe(el)
-    return () => {
-      observer.disconnect()
-      clearTimeout(timer)
-    }
-  }, [])
-
-  // Restart the live page whenever the engine, size or colour scheme changes.
-  const ready = viewport !== null
-  useEffect(() => {
-    if (!viewport || canvas) return
-    setError(null)
-    void window.swivel.start({ engine, url, viewport, colorScheme: dark ? 'dark' : 'light', pixelRatio: window.devicePixelRatio })
-    // url is left out on purpose: navigation inside the page must not restart it. Window
-    // resizes in "Fill window" resize the page instead (below).
+    if (url) void window.swivel.setColorScheme(dark ? 'dark' : 'light')
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [engine, size, dark, ready, canvas])
+  }, [dark])
 
-  // The canvas has no start(): dark mode goes to its frames directly.
-  useEffect(() => {
-    if (canvas) void window.swivel.setColorScheme(dark ? 'dark' : 'light')
-  }, [dark, canvas])
-
-  // In "Fill window", follow the window size without reloading the page.
-  useEffect(() => {
-    if (size === 'fill' && area) void window.swivel.resize(area)
-  }, [size, area?.width, area?.height])
+  function addFrame() {
+    const r = addButton.current?.getBoundingClientRect()
+    if (r) canvas.current?.addFrame({ x: r.left, y: r.bottom + 4 })
+  }
+  const addFrameRef = useRef(addFrame)
+  addFrameRef.current = addFrame
 
   // Menu shortcuts (they work even when a native page view has focus).
   useEffect(() =>
@@ -137,6 +86,12 @@ export function App() {
         void window.swivel.history(c)
       } else if (c === 'console') {
         toggleConsoleRef.current()
+      } else if (c === 'dark') {
+        setDark((d) => !d)
+      } else if (c === 'add-frame') {
+        addFrameRef.current()
+      } else {
+        canvas.current?.command(c)
       }
     })
   , [])
@@ -155,26 +110,31 @@ export function App() {
     }
   }
 
-  function onSubmit(e: FormEvent) {
-    e.preventDefault()
-    editing.current = false
-    ;(document.activeElement as HTMLElement | null)?.blur()
-    const next = normalizeUrl(address)
+  function go(to: string) {
+    const next = normalizeUrl(to)
+    setAddress(next)
     setUrl(next)
     setError(null)
     void window.swivel.navigate(next)
   }
 
+  function onSubmit(e: FormEvent) {
+    e.preventDefault()
+    editing.current = false
+    ;(document.activeElement as HTMLElement | null)?.blur()
+    if (address.trim()) go(address)
+  }
+
   return (
-    <div className={['app', consoleOpen && 'console-open', findOpen && 'find-open'].filter(Boolean).join(' ')}>
+    <div className="app">
       <form className="toolbar" onSubmit={onSubmit}>
-        <button type="button" className="icon" aria-label="Back" title="Back" onClick={() => void window.swivel.history('back')}>
+        <button type="button" className="icon" aria-label="Back" title={`Back (${keys(mac ? 'Mod+[' : 'Alt+Left')})`} onClick={() => void window.swivel.history('back')}>
           <Icon d={ICONS.back} />
         </button>
-        <button type="button" className="icon" aria-label="Forward" title="Forward" onClick={() => void window.swivel.history('forward')}>
+        <button type="button" className="icon" aria-label="Forward" title={`Forward (${keys(mac ? 'Mod+]' : 'Alt+Right')})`} onClick={() => void window.swivel.history('forward')}>
           <Icon d={ICONS.forward} />
         </button>
-        <button type="button" className="icon" aria-label="Reload" title="Reload" onClick={() => void window.swivel.history('reload')}>
+        <button type="button" className="icon" aria-label="Reload" title={`Reload every frame (${keys('Mod+R')})`} onClick={() => void window.swivel.history('reload')}>
           <Icon d={ICONS.reload} />
         </button>
         <label className="address">
@@ -189,38 +149,27 @@ export function App() {
             }}
             onBlur={() => (editing.current = false)}
             spellCheck={false}
+            autoFocus
+            placeholder="Enter a URL"
           />
         </label>
-        {!canvas && (
-          <>
-            <div className="segmented" role="group" aria-label="Browser engine">
-              {ENGINES.map((id) => (
-                <button key={id} type="button" aria-pressed={engine === id} title={engineHint(id, platform)} onClick={() => setEngine(id)}>
-                  {engineLabel(id)}
-                </button>
-              ))}
-            </div>
-            <label>
-              <span className="sr-only">Screen size</span>
-              <select className="size" value={String(size)} onChange={(e) => setSize(e.target.value === 'fill' ? 'fill' : Number(e.target.value))}>
-                <option value="fill">Fill window</option>
-                {SIZES.map((s, i) => (
-                  <option key={s.label} value={i}>
-                    {s.label} · {s.viewport.width}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </>
-        )}
-        <button type="button" className="icon" aria-label="Canvas" title="Canvas: several engines and sizes side by side" aria-pressed={canvas} onClick={() => setCanvas(!canvas)}>
-          <Icon d={ICONS.canvas} />
+        <button ref={addButton} type="button" className="icon" aria-label="Add frame" title={`Add a frame: pick a device (${keys('Mod+T')})`} disabled={!url} onClick={addFrame}>
+          <Icon d={ICONS.plus} />
         </button>
+        <button type="button" className="icon" aria-label="Dark mode" title={`Dark mode: show pages in their dark colour scheme (${keys('Shift+Mod+D')})`} aria-pressed={dark} onClick={() => setDark(!dark)}>
+          <Icon d={ICONS.moon} />
+        </button>
+        <button type="button" className="icon console-toggle" aria-label="Console" title={`Console: messages and errors from every frame (${keys(mac ? 'Alt+Mod+J' : 'Ctrl+Shift+J')})`} aria-pressed={consoleOpen} onClick={toggleConsole}>
+          <Icon d={ICONS.console} />
+          {unseenErrors > 0 && <span className="badge" aria-label={`${unseenErrors} new errors`}>{unseenErrors > 99 ? '99+' : unseenErrors}</span>}
+        </button>
+        <span className="divider" />
         <button
           type="button"
-          className="icon"
+          className="icon danger"
           aria-label="Clear data"
-          title="Clear this window's data: cookies, storage and cache, in every engine"
+          title="Clear data: wipe this window's cookies, storage and cache in every engine, and reload"
+          disabled={!url}
           onClick={() => {
             setError(null)
             void window.swivel.clearData()
@@ -228,30 +177,27 @@ export function App() {
         >
           <Icon d={ICONS.trash} />
         </button>
-        <button type="button" className="icon" aria-label="Dark mode" title="Dark mode" aria-pressed={dark} onClick={() => setDark(!dark)}>
-          <Icon d={ICONS.moon} />
-        </button>
-        <button type="button" className="icon console-toggle" aria-label="Console" title="Console" aria-pressed={consoleOpen} onClick={toggleConsole}>
-          <Icon d={ICONS.console} />
-          {unseenErrors > 0 && <span className="badge" aria-label={`${unseenErrors} new errors`}>{unseenErrors > 99 ? '99+' : unseenErrors}</span>}
-        </button>
         <div className={loading ? 'progress on' : 'progress'} role="progressbar" aria-label="Page loading" aria-busy={loading} />
       </form>
 
-      {findOpen && <FindBar focusToken={findFocus} engine={engine} onClose={() => setFindOpen(false)} />}
+      {findOpen && <FindBar focusToken={findFocus} engine="canvas" onClose={() => setFindOpen(false)} />}
 
-      {/* Always mounted: "Fill window" measures it. */}
-      <main ref={areaRef} className={canvas ? 'viewport with-canvas' : size === 'fill' ? 'viewport fill' : 'viewport'}>
+      <main className={url ? 'viewport with-canvas' : 'viewport'}>
         {error && <p className="status error">{error}</p>}
-        {canvas ? (
-          <Canvas />
+        {url ? (
+          <Canvas ref={canvas} url={url} dark={dark} />
         ) : (
-          viewport &&
-          (window.swivel.nativeEngines.includes(engine) ? (
-            <NativeView viewport={viewport} engine={engine} />
-          ) : (
-            <LiveView viewport={viewport} engine={engine} label={engineLabel(engine)} viewKey={engine} send={window.swivel.input} />
-          ))
+          <div className="start">
+            <p className="start-hint">Enter a URL to start</p>
+            <div className="start-urls">
+              {START_URLS.map((u) => (
+                <button key={u} type="button" onClick={() => go(u)}>
+                  {u}
+                </button>
+              ))}
+            </div>
+            <p className="start-note">Opens in the Responsive set: Chromium at desktop, laptop, tablet and phone sizes.</p>
+          </div>
         )}
       </main>
 

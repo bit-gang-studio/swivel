@@ -6,6 +6,7 @@ import { StreamedView, releaseContexts } from './live'
 import { NativeChrome } from './native-chrome'
 import { NativeSafari, webkitAddon } from './native-safari'
 import type { Emit, EmitLive, PageView } from './view'
+import { log } from './log'
 
 const ENGINES: EngineId[] = ['chromium', 'firefox', 'webkit']
 
@@ -21,7 +22,6 @@ export function streamedEngines(): EngineId[] {
 
 const sameUrl = (a?: string, b?: string) => !!a && !!b && a.replace(/\/$/, '') === b.replace(/\/$/, '')
 const canvasKey = (id: string) => `canvas:${id}`
-
 /**
  * One window's pages, all on the same URL and the window's own data.
  * - Single-page view: one live view per engine (keyed by engine), one shown. The others stay
@@ -50,8 +50,6 @@ export class EngineHost {
 
   /** Test hook: sees console text from any engine. */
   onConsole?: (engine: EngineId, text: string) => void
-  /** How many times start() has run. The self-test waits for the UI's first start. */
-  starts = 0
 
   constructor(win: BrowserWindow, emit: EmitLive) {
     this.win = win
@@ -67,7 +65,7 @@ export class EngineHost {
     this.storageId = randomUUID()
     const { settings, active } = this
     if (settings && url) this.settings = { ...settings, url }
-    this.clearing = frames ? this.setCanvas(frames) : settings && active ? this.start({ ...this.settings!, engine: active }) : Promise.resolve()
+    this.clearing = frames && this.settings ? this.setCanvas(frames, this.settings) : settings && active ? this.start({ ...this.settings!, engine: active }) : Promise.resolve()
     return this.clearing
   }
 
@@ -139,6 +137,7 @@ export class EngineHost {
       return this.emit('console', entry)
     }
     if (event === 'url') this.urls.set(key, payload as string)
+    if (event === 'url' || event === 'error') log('view', key, engine, event, String(payload).slice(0, 120))
     // Per-view events go to the UI with the view's key; the UI shows them where that view is.
     if (event === 'frame') {
       this.frameWaiters.get(key)?.()
@@ -164,7 +163,6 @@ export class EngineHost {
 
   /** Single-page view: show an engine and apply size and colour scheme to every view, without reloading. */
   async start(opts: LiveOptions): Promise<void> {
-    this.starts++
     const { engine, ...settings } = opts
     const first = !this.settings
     this.settings = settings
@@ -197,9 +195,11 @@ export class EngineHost {
    * Canvas: show these frames, all at once, each at its own engine and size. Frames that already
    * exist keep their page; the single-page views are hidden meanwhile.
    */
-  async setCanvas(frames: CanvasFrame[]): Promise<void> {
-    if (!this.settings) return
+  async setCanvas(frames: CanvasFrame[], page: { url: string; colorScheme: 'light' | 'dark' }): Promise<void> {
+    // The canvas can be the first thing a window shows; frames bring their own sizes.
+    this.settings ??= { ...page, viewport: { width: 1280, height: 800 } }
     const url = this.currentUrl() ?? this.settings.url
+    log('canvas', frames.map((f) => `${f.id}:${f.engine}:${f.viewport.width}x${f.viewport.height}`).join(' '), 'url', url)
     this.settings = { ...this.settings, url }
     if (!this.canvas) for (const e of ENGINES) this.views.get(e)?.hide()
     const next = new Map(frames.map((f) => [f.id, f]))
@@ -211,16 +211,41 @@ export class EngineHost {
         if (this.views.get(key)?.engine !== f.engine) this.dropView(key) // Engine changed: a new page.
         if (!this.urls.has(key)) this.urls.set(key, url)
         const view = this.views.get(key) ?? this.makeView(key, f.engine)
-        await view.update({ ...this.settings!, url: this.urls.get(key) ?? url, engine: f.engine, viewport: f.viewport })
-        view.show()
+        try {
+          await view.update({ ...this.settings!, url: this.urls.get(key) ?? url, engine: f.engine, viewport: f.viewport })
+        } catch (err) {
+          log('frame', f.id, f.engine, 'update failed', String(err))
+        }
+        if (!this.hiddenFrames.has(f.id)) view.show()
+        log('frame', f.id, f.engine, this.hiddenFrames.has(f.id) ? 'ready (hidden)' : 'shown')
       })
     )
   }
 
   /** Where a canvas frame's page sits, and the canvas area it's cut off at. */
   async setFrameRect(id: string, rect: ViewRect): Promise<void> {
-    await this.views.get(canvasKey(id))?.setRect(rect)
+    const view = this.views.get(canvasKey(id))
+    if (!this.placed.has(id) || !view) {
+      this.placed.add(id)
+      log('frame', id, view ? 'first rect' : 'rect for a frame with no view', { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) })
+    }
+    await view?.setRect(rect)
   }
+
+  /** Focus mode shows one frame; the others keep running, hidden. */
+  setFrameVisible(id: string, visible: boolean): void {
+    if (visible) this.hiddenFrames.delete(id)
+    else this.hiddenFrames.add(id)
+    const view = this.views.get(canvasKey(id))
+    if (visible) view?.show()
+    else view?.hide()
+  }
+
+  private hiddenFrames = new Set<string>()
+  /** Frames that have been told where they sit (logged once each). */
+  private placed = new Set<string>()
+  /** The frame the user last picked: find-in-page searches it. */
+  selectedFrame?: string
 
   frameInput(id: string, e: InputEvent): void {
     this.views.get(canvasKey(id))?.input(e)
@@ -280,7 +305,8 @@ export class EngineHost {
   }
 
   find(req: FindRequest): Promise<void> {
-    const key = this.shownKeys()[0]
+    const picked = this.selectedFrame && canvasKey(this.selectedFrame)
+    const key = picked && this.views.has(picked) ? picked : this.shownKeys()[0]
     const view = key ? this.views.get(key) : undefined
     return view ? view.find(req) : Promise.resolve()
   }

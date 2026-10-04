@@ -19,6 +19,7 @@ export function installMenu(newWindow: () => void): void {
       label: 'File',
       submenu: [
         { label: 'New Window', accelerator: 'CmdOrCtrl+N', click: () => newWindow() },
+        { label: 'Add Frame…', accelerator: 'CmdOrCtrl+T', click: send('add-frame') },
         { type: 'separator' },
         { role: mac ? 'close' : 'quit' }
       ]
@@ -36,6 +37,11 @@ export function installMenu(newWindow: () => void): void {
         { label: 'Back', accelerator: mac ? 'Cmd+[' : 'Alt+Left', click: send('back') },
         { label: 'Forward', accelerator: mac ? 'Cmd+]' : 'Alt+Right', click: send('forward') },
         { type: 'separator' },
+        { label: 'Zoom to Fit', accelerator: 'CmdOrCtrl+0', click: send('fit') },
+        { label: 'Actual Size', accelerator: 'CmdOrCtrl+1', click: send('zoom-100') },
+        { label: 'Focus Frame / Back to Canvas', accelerator: 'CmdOrCtrl+Return', click: send('focus') },
+        { type: 'separator' },
+        { label: 'Toggle Dark Mode', accelerator: 'Shift+CmdOrCtrl+D', click: send('dark') },
         { label: 'Toggle Console', accelerator: mac ? 'Alt+Cmd+J' : 'Ctrl+Shift+J', click: send('console') },
         { type: 'separator' },
         ...(windowedFirefoxStatus() === 'needs-permission'

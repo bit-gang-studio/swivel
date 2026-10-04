@@ -48,7 +48,6 @@ export async function clickTest(win: BrowserWindow, host: EngineHost): Promise<v
 
   // The whole page is one button that logs when clicked.
   const page = 'data:text/html,' + encodeURIComponent("<body style='margin:0'><button style='width:100vw;height:100vh' onclick=\"console.log('clicked')\">Click</button></body>")
-  while (host.starts === 0) await sleep(100)
   await sleep(1500)
   await ui(`(() => {
     const input = document.querySelector('.address input')
