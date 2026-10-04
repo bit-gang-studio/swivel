@@ -67,7 +67,7 @@ export async function visualCheck(win: BrowserWindow, dir: string, newWindow: ()
   await sleep(3000)
   await shot('canvas-panned')
   await wheel(0, -120)
-  // Zoomed in, then out below 25%, where a Blink frame shows a still image of itself.
+  // Zoomed in, then far out: every frame stays live and sharp.
   await wheel(0, -150, true)
   await sleep(4000)
   await shot('canvas-zoomed-in')

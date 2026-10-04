@@ -5,15 +5,12 @@ import type { FindRequest } from '../shared/find'
 import { log } from './log'
 
 
-/** Chromium can't zoom a page out further than this. */
-const MIN_ZOOM = 0.25
-
 const LEVELS = { debug: 'debug', info: 'log', warning: 'warning', error: 'error' } as const
 
 /**
  * Chrome shown natively: Electron's own Chromium in a view laid over the page area.
- * No streaming, so it is as fast as a real browser. The view fits the page area and zoom makes
- * the page lay out at the viewport width. Dark mode uses the DevTools protocol.
+ * No streaming, so it is as fast as a real browser. The view fits the page area and device
+ * emulation makes the page lay out at the viewport size. Dark mode uses the DevTools protocol.
  */
 export class NativeChrome implements PageView {
   readonly engine: EngineId = 'chromium'
@@ -46,10 +43,7 @@ export class NativeChrome implements PageView {
         partition: this.partition, // This window's own storage, in memory only.
         sandbox: true,
         contextIsolation: true,
-        nodeIntegration: false,
-        // Zoom is stored per site. This default means a site visited for the first time already
-        // starts at the right scale, instead of reflowing once the zoom is reapplied.
-        zoomFactor: this.scale()
+        nodeIntegration: false
       }
     })
     const wc = view.webContents
@@ -63,7 +57,7 @@ export class NativeChrome implements PageView {
       if (url === 'about:blank') return
       if (this.opts) this.opts = { ...this.opts, url } // Where it really is, so updates don't reload it.
       this.emit('url', url)
-      this.lastZoom = undefined // A new page starts at the default zoom.
+      this.lastScale = undefined // A new page may be a new renderer, which starts without it.
       void this.applyEmulation() // Reapply in case navigation swapped renderer processes.
     })
     wc.on('did-navigate-in-page', (_e, url, isMainFrame) => {
@@ -132,10 +126,10 @@ export class NativeChrome implements PageView {
 
   private async open(opts: LiveOptions): Promise<void> {
     const sameUrl = this.opts?.url === opts.url
-    // Only the size changed (a window resize): just the zoom, no DevTools round trip.
+    // Only the size changed: just the scale, no DevTools round trip.
     if (this.view && this.opts && sameUrl && this.opts.colorScheme === opts.colorScheme) {
       this.opts = opts
-      return this.applyZoom()
+      return this.applyScale()
     }
     this.opts = opts
     const view = (this.view ??= this.create())
@@ -181,24 +175,21 @@ export class NativeChrome implements PageView {
   /** Where the page area is in the window, in window pixels. Sent by the UI when layout changes. */
   async setRect(rect: ViewRect): Promise<void> {
     if (rect.width < 1 || rect.height < 1) return // Mid-layout; a page can't be 0 pixels wide.
-    // Moving (a canvas pan) keeps the scale; a new size only needs the zoom reapplied.
+    // Moving (a canvas pan) keeps the scale; a new size only needs the scale reapplied.
     const resized = !this.rect || Math.abs(rect.width - this.rect.width) > 0.5
     const first = !this.rect
     this.rect = rect
     if (!this.view) return
     this.place()
     if (first) await this.applyEmulation()
-    else if (resized) this.applyZoom()
+    else if (resized) this.applyScale()
     this.updateCut()
   }
 
   /**
-   * Two cases a live Chromium view can't show, so it's swapped for a still image of itself, which
-   * the UI clips and scales, until it can be live again:
-   * - partly outside its clip area (a canvas frame under the toolbar): Electron doesn't clip a
-   *   view on macOS;
-   * - zoomed out below 25%: Chromium can't zoom a page out further. The image is refreshed
-   *   about once a second, from the hidden view kept at 25%.
+   * Partly outside its clip area (a canvas frame under the toolbar)? Electron doesn't clip a
+   * view on macOS, so it's swapped for a still image of itself, which the UI clips, until it's
+   * fully in view again.
    */
   private cut = false
   /** The still image for this cut is up; the live view can leave the screen. */
@@ -212,25 +203,16 @@ export class NativeChrome implements PageView {
   private place(): void {
     if (!this.view || !this.rect) return
     const b = this.bounds(this.rect)
-    const onScreen = this.active && !this.tiny() && (!this.cut || !this.snapped)
+    const onScreen = this.active && (!this.cut || !this.snapped)
     this.view.setBounds(onScreen ? b : { ...b, y: -(b.height + 2000) })
     this.view.setVisible(true)
   }
-  private refresh?: ReturnType<typeof setInterval>
-
-  /** Smaller on the canvas than Chromium can draw it. */
-  private tiny(): boolean {
-    return this.scale() < MIN_ZOOM - 0.001
-  }
-
   private updateCut(): void {
     const r = this.rect
     const c = r?.clip
     // Only edges inside the window count: the window's own edges already cut native views off.
     const w = this.win.getContentBounds()
-    const tiny = this.tiny()
     const cut =
-      tiny ||
       (!!r &&
         !!c &&
         ((c.x > 0.5 && r.x < c.x - 0.5) ||
@@ -238,22 +220,17 @@ export class NativeChrome implements PageView {
           (c.x + c.width < w.width - 0.5 && r.x + r.width > c.x + c.width + 0.5) ||
           (c.y + c.height < w.height - 0.5 && r.y + r.height > c.y + c.height + 0.5)))
     if (cut !== this.cut) {
-      log('blink cut', cut, { tiny, rect: r && this.bounds(r), clip: c, window: { width: w.width, height: w.height } })
+      log('blink cut', cut, { rect: r && this.bounds(r), clip: c, window: { width: w.width, height: w.height } })
       this.cut = cut
       this.snapped = false
       if (cut) void this.swapForSnapshot()
       else this.emit('snapshot', null)
     }
-    if (tiny && !this.refresh) this.refresh = setInterval(() => void this.swapForSnapshot(), 1200)
-    if (!tiny && this.refresh) {
-      clearInterval(this.refresh)
-      this.refresh = undefined
-    }
     this.place()
   }
 
   private async swapForSnapshot(): Promise<void> {
-    // Let a new size or zoom paint first, or the image shows the old layout.
+    // Let a new size or scale paint first, or the image shows the old layout.
     await new Promise((r) => setTimeout(r, 100))
     if (!this.cut) return
     const image = await this.view?.webContents.capturePage().catch(() => undefined)
@@ -268,23 +245,27 @@ export class NativeChrome implements PageView {
   }
 
   private bounds(rect: ViewRect) {
-    // Below Chromium's smallest zoom the (hidden) view stays at that zoom's size, to be captured.
-    const grow = this.tiny() ? MIN_ZOOM / this.scale() : 1
-    return { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width * grow), height: Math.round(rect.height * grow) }
+    return { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) }
   }
 
-  private lastZoom?: number
+  private lastScale?: string
 
-  private applyZoom(): void {
+  /**
+   * The page lays out at exactly the viewport size and is drawn scaled to fit the view, with
+   * Chromium's device emulation (what DevTools' device toolbar uses). It belongs to this view
+   * alone: page zoom, used before, is shared by every view of a site in a window, so frames of
+   * different sizes overwrote each other's.
+   */
+  private applyScale(): void {
     const wc = this.view?.webContents
-    if (!wc || !this.rect || !this.committed || wc.isDestroyed()) return
-    // Within a rounding error of 1 (window and page sizes arrive separately): stay at 1, so a
-    // resize doesn't flicker the zoom.
+    if (!wc || !this.rect || !this.opts || !this.committed || wc.isDestroyed()) return
+    const { width, height } = this.opts.viewport
     const scale = this.scale()
-    const zoom = Math.abs(scale - 1) < 0.01 ? 1 : Math.max(MIN_ZOOM, scale)
-    if (zoom !== this.lastZoom) log('blink zoom', zoom, 'was', wc.getZoomFactor(), wc.getURL().slice(0, 30))
-    this.lastZoom = zoom
-    wc.setZoomFactor(zoom)
+    const key = `${width}x${height}@${scale}`
+    if (key === this.lastScale) return
+    this.lastScale = key
+    log('blink scale', key)
+    wc.enableDeviceEmulation({ screenPosition: 'desktop', screenSize: { width, height }, viewPosition: { x: 0, y: 0 }, deviceScaleFactor: 0, viewSize: { width, height }, scale })
   }
 
   private async applyEmulation(): Promise<void> {
@@ -292,10 +273,7 @@ export class NativeChrome implements PageView {
     if (!wc || !this.opts || !this.committed || wc.isDestroyed()) return
     const { colorScheme } = this.opts
 
-    // The view is sized to fit the page area; zoom makes the page lay out at the viewport width.
-    // (A DevTools size override draws at full size and spills outside the view, so it's not used.)
-    // Zoom is per origin, so this is reapplied after every navigation.
-    this.applyZoom()
+    this.applyScale()
 
     // Dark mode needs the DevTools protocol. Attaching it while a test runner is connected over
     // remote debugging crashes Electron, so it is skipped then.
@@ -333,7 +311,6 @@ export class NativeChrome implements PageView {
   }
 
   destroy(): void {
-    clearInterval(this.refresh)
     if (!this.view) return
     this.win.contentView.removeChildView(this.view)
     this.view.webContents.close()

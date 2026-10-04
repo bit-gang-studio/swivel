@@ -19,7 +19,6 @@ interface View {
 
 const GAP = 80
 const HEADER = 30
-// Below 25% a Chromium frame shows a still image of itself (Chromium can't zoom out further).
 const MIN_ZOOM = 0.1
 const MAX_ZOOM = 1
 const MIN_SIZE = 240

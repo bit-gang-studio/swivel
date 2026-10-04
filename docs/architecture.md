@@ -25,7 +25,7 @@ Backends:
 
 **Native** views are laid over the page area, so they are real-time, like a normal browser. The page lays out at the viewport width and is scaled to fit:
 
-- Chrome: the view fits the page area and zoom sets the layout width. Zoom is per site, so the view starts with the right default zoom and it is reapplied after navigation. On Windows a site's first visit can briefly reflow. Dark mode uses the DevTools protocol, but not while a test runner is attached over remote debugging (that crashes Electron). A frame cut off by the app's own UI, or zoomed out below 25% (Chromium's limit), shows a still image of itself instead: Electron can't clip a view on macOS.
+- Chrome: the view fits the page area, and device emulation (what DevTools' device toolbar uses) lays the page out at the frame's size and draws it scaled. Page zoom isn't used: it's shared by every view of a site in a window. A view that isn't to be seen is parked above the window, never hidden: a hidden view tells its page the window is 0 pixels wide. Dark mode uses the DevTools protocol, but not while a test runner is attached over remote debugging (that crashes Electron). A frame cut off by the app's own UI shows a still image of itself instead: Electron can't clip a view on macOS.
 - Safari: the WKWebView is full viewport size inside a clipping container whose bounds are the viewport size, so AppKit scales it. Page zoom stops at 0.5, so it isn't used.
 
 A DevTools size override draws at full size outside the view, so it isn't used either.

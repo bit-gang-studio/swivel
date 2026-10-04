@@ -31,7 +31,7 @@ export async function clickTest(win: BrowserWindow, host: EngineHost): Promise<v
     return app.exit(0)
   }
   // Small enough for CI screens, and active: an inactive window's first click only activates it.
-  win.setBounds({ x: 0, y: 0, width: 1400, height: 900 }) // Wide enough that three 1280 frames stay above Chromium's 25% zoom floor.
+  win.setBounds({ x: 0, y: 0, width: 1400, height: 900 })
   win.focus()
   app.focus({ steal: true })
   const click = (x: number, y: number) => addon.clickAt!(win.getNativeWindowHandle(), x, y)
