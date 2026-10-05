@@ -4,7 +4,7 @@ import { FindBar } from './FindBar'
 import { AuthBar } from './AuthBar'
 import { StoragePanel } from './StoragePanel'
 import { BottomPanel } from './BottomPanel'
-import { ConsolePanel, type LogEntry } from './ConsolePanel'
+import { ConsolePanel, type ConsoleItem } from './ConsolePanel'
 import { Icon, ICONS } from './icons'
 
 const mac = window.swivel.platform === 'darwin'
@@ -51,7 +51,7 @@ export function App() {
   }
   const canvas = useRef<CanvasHandle>(null)
   const addButton = useRef<HTMLButtonElement>(null)
-  const [logs, setLogs] = useState<LogEntry[]>([])
+  const [logs, setLogs] = useState<ConsoleItem[]>([])
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const consoleOpenRef = useRef(consoleOpen)
@@ -62,7 +62,7 @@ export function App() {
   useEffect(() => {
     const offs = [
       window.swivel.on('console', (entry) => {
-        setLogs((l) => [...l.slice(-499), { ...entry, at: Date.now() }])
+        setLogs((l) => [...l.slice(-499), { kind: 'message', at: Date.now(), ...entry }])
         if (entry.type === 'error' && !consoleOpenRef.current) setUnseenErrors((n) => n + 1)
       }),
       window.swivel.on('url', (u) => {
@@ -288,7 +288,22 @@ export function App() {
             setStorageOpen(false)
           }}
         >
-          {storageOpen ? <StoragePanel /> : <ConsolePanel logs={logs} onClear={() => setLogs([])} />}
+          {storageOpen ? (
+            <StoragePanel />
+          ) : (
+            <ConsolePanel
+              items={logs}
+              onClear={() => setLogs([])}
+              onRun={(code, only) => {
+                // The line, then each engine's answer when the frames have run it.
+                setLogs((l) => [...l.slice(-499), { kind: 'input', at: Date.now(), code }])
+                void window.swivel.evaluate(code, only).then((reply) => {
+                  if (!reply) return
+                  setLogs((l) => [...l.slice(-499), 'syntaxError' in reply ? { kind: 'syntax', at: Date.now(), text: reply.syntaxError } : { kind: 'result', at: Date.now(), results: reply.results }])
+                })
+              }}
+            />
+          )}
         </BottomPanel>
       )}
     </div>

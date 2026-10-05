@@ -3,6 +3,7 @@ import type { Credentials, EngineId, InputEvent, LiveOptions, ViewRect } from '.
 import type { Asker, Emit, PageView } from './view'
 import type { FindRequest } from '../shared/find'
 import { log } from './log'
+import { sourceLabel } from './view'
 import { mobileDensity } from './mobile'
 
 
@@ -52,7 +53,7 @@ export class NativeChrome implements PageView {
     // the user agent would treat the page differently from real Chrome.
     // Mobile mode: a phone's or tablet's browser ID instead (set before the first page loads).
     wc.setUserAgent(this.opts?.mobile?.userAgent ?? wc.getUserAgent().replace(/\s(?:Electron|swivel)\/\S+/gi, ''))
-    wc.on('console-message', (e) => this.emit('console', { engine: 'chromium', type: LEVELS[e.level] ?? 'log', text: e.message.replace(/%c/g, '') }))
+    wc.on('console-message', (e) => this.emit('console', { engine: 'chromium', type: LEVELS[e.level] ?? 'log', text: e.message.replace(/%c/g, ''), source: sourceLabel(e.sourceId, e.lineNumber) }))
     wc.on('did-start-loading', () => this.emit('loading', true))
     wc.on('did-stop-loading', () => this.emit('loading', false))
     wc.on('did-navigate', (_e, url) => {

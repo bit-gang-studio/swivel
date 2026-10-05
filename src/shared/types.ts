@@ -23,6 +23,8 @@ export interface ConsoleEntry {
   engine: EngineId
   type: string
   text: string
+  /** Where it was logged from: file name and line ("app.js:42"), when the engine says. */
+  source?: string
 }
 
 export interface Frame {

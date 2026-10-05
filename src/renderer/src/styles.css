@@ -248,3 +248,23 @@ button, input, select { font: inherit; color: inherit; }
 .storage .copied, .storage .flag { margin-left: 6px; padding: 0 5px; border-radius: 4px; background: var(--bg); color: var(--muted); font: 11px system-ui, sans-serif; }
 .storage .delete { width: 22px; height: 22px; border: none; border-radius: 11px; background: transparent; color: var(--muted); cursor: pointer; font-size: 15px; line-height: 1; }
 .storage .delete:hover { background: var(--hover); color: var(--error); }
+
+/* Console lines: where a message came from, repeats, and the prompt with each engine's answer. */
+.console li[data-source]::after { content: attr(data-source); float: right; margin-left: 16px; color: var(--muted); font-size: 11px; }
+.console .repeat { display: inline-block; min-width: 16px; padding: 0 5px; border-radius: 8px; background: var(--muted); color: var(--surface); font: 600 10.5px system-ui, sans-serif; line-height: 16px; text-align: center; }
+.console li.error .repeat { background: var(--error); }
+.console .mark { display: inline-block; width: 14px; color: var(--muted); font-weight: 600; }
+.console li.input { color: var(--accent); }
+.console li.input .mark { color: var(--accent); }
+.console li.result .value { white-space: pre-wrap; }
+.console .value.string { color: #0f766e; }
+.console .value.number, .console .value.boolean, .console .value.bigint { color: #7c3aed; }
+.console .value.undefined, .console .value.null { color: var(--muted); }
+.console li.result .same { display: inline-flex; gap: 2px; vertical-align: 1px; }
+.console li.result.differs { box-shadow: inset 3px 0 0 var(--error); }
+.console li.result.differs > div { padding: 1px 0; }
+.console li.result .error, .console li.result.error .value { color: var(--error); }
+.prompt { display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 10px 0 12px; border-top: 1px solid var(--line); flex-shrink: 0; }
+.prompt .mark { color: var(--accent); font: 600 13px ui-monospace, 'SF Mono', Menlo, monospace; }
+.prompt input { flex: 1; min-width: 0; height: 26px; border: none; outline: none; background: transparent; font: 12.5px ui-monospace, 'SF Mono', Menlo, monospace; }
+.prompt select { height: 24px; border: 1px solid var(--line); border-radius: 12px; padding: 0 8px; background: var(--surface); font-size: 12px; cursor: pointer; }

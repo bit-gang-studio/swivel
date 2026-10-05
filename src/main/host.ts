@@ -13,6 +13,8 @@ import type { BrowserContext } from 'playwright-core'
 import type { Asker, Emit, EmitLive, PageView } from './view'
 import { log } from './log'
 import { mobileUserAgent } from './mobile'
+import { EVAL_PREFIX, evalScript, type EvalReply, type EvalResult, type PageEval } from '../shared/evaluate'
+import { parseLine } from './parse-line'
 import { STORAGE_PREFIX, storageEditScript, storageReportScript, type PageStorage, type StorageAction, type StorageSnapshot, type StoredItem } from '../shared/storage'
 import { SYNC_PREFIX, syncApplyScript, syncInstallScript, type SyncMessage } from '../shared/sync'
 import { CookieJar, electronStore, nativeWebKitStore, playwrightStore, type NativeCookies } from './cookies'
@@ -269,6 +271,7 @@ export class EngineHost {
       const entry = payload as ViewEvents['console']
       if (entry.text.startsWith(SYNC_PREFIX)) return this.sync(key, entry.text.slice(SYNC_PREFIX.length))
       if (entry.text.startsWith(STORAGE_PREFIX)) return this.storageReported(engine, entry.text.slice(STORAGE_PREFIX.length))
+      if (entry.text.startsWith(EVAL_PREFIX)) return this.evalReported(key, entry.text.slice(EVAL_PREFIX.length))
       this.onConsole?.(engine, entry.text)
       return this.emit('console', entry)
     }
@@ -287,6 +290,53 @@ export class EngineHost {
     if (event === 'loading' && payload === false) this.broadcasting = false
     if (event === 'url' && !this.broadcasting) this.follow(key, payload as string)
     this.emit(event as 'url', payload as string)
+  }
+
+  /** Frames' answers to console prompt lines in progress, by request id. */
+  private evals = new Map<number, { answers: Map<string, PageEval>; done: () => void; wanted: number }>()
+
+  private evalReported(key: string, json: string): void {
+    try {
+      const answer = JSON.parse(json) as PageEval
+      const request = this.evals.get(answer.id)
+      if (!request) return
+      request.answers.set(key, answer)
+      if (request.answers.size >= request.wanted) request.done()
+    } catch {
+      // Not an answer.
+    }
+  }
+
+  /**
+   * The console prompt: run a line of JavaScript in every frame (or one engine's frames) and give
+   * each engine's answer. Every frame runs it, so a line that changes the page changes them all;
+   * an engine's first frame speaks for it.
+   */
+  async evaluate(code: string, only?: EngineId): Promise<EvalReply> {
+    const parsed = parseLine(code)
+    if ('syntaxError' in parsed) return parsed
+    const frames = [...this.views].filter(([key, view]) => key.startsWith('canvas:') && (!only || view.engine === only))
+    const id = nextAsk++
+    const answers = new Map<string, PageEval>()
+    await new Promise<void>((resolve) => {
+      // A line can wait on the network; give it a few seconds, then show what has answered.
+      const timer = setTimeout(resolve, 5000)
+      this.evals.set(id, { answers, wanted: frames.length, done: () => (clearTimeout(timer), resolve()) })
+      const script = evalScript(id, parsed.body)
+      for (const [, view] of frames) view.run(script)
+      if (!frames.length) resolve()
+    })
+    this.evals.delete(id)
+    const results: EvalResult[] = []
+    for (const engine of ENGINES) {
+      const first = frames.find(([key, view]) => view.engine === engine && answers.has(key))
+      const any = frames.some(([, view]) => view.engine === engine)
+      if (first) {
+        const { ok, type, text } = answers.get(first[0])!
+        results.push({ engine, ok, type, text })
+      } else if (any) results.push({ engine, ok: false, type: 'error', text: 'No answer (the page is busy, or still loading).' })
+    }
+    return { results }
   }
 
   /** Pages' storage reports for the request in progress, by engine. */

@@ -2,7 +2,7 @@ import { join } from 'node:path'
 import { app, screen, type BrowserWindow } from 'electron'
 import { chromium, firefox, webkit, type Browser, type BrowserContext, type BrowserType, type Page } from 'playwright-core'
 import type { Credentials, EngineId, Frame, InputEvent, LiveOptions, ViewRect } from '../shared/types'
-import type { Asker, Emit, PageView } from './view'
+import { sourceLabel, type Asker, type Emit, type PageView } from './view'
 import { FrameSource, jugglerSession } from './frames'
 import { FirefoxWindow, parkingSpot, windowedFirefoxStatus, windowedLaunchOptions } from './firefox-window'
 import { findInPage, type FindRequest } from '../shared/find'
@@ -234,7 +234,7 @@ export class StreamedView implements PageView {
         this.hiddenWindow = window
       }
     }
-    page.on('console', (msg) => this.emit('console', { engine: this.engine, type: msg.type(), text: msg.text() }))
+    page.on('console', (msg) => this.emit('console', { engine: this.engine, type: msg.type(), text: msg.text(), source: sourceLabel(msg.location().url, msg.location().lineNumber) }))
     page.on('pageerror', (err) => this.emit('console', { engine: this.engine, type: 'error', text: err.message }))
     page.on('request', (req) => {
       if (req.isNavigationRequest() && req.frame() === page.mainFrame()) this.emit('loading', true)

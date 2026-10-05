@@ -40,3 +40,18 @@ export interface PageView {
   input(e: InputEvent): void
   destroy(): void
 }
+
+/**
+ * Where a console message was logged from, as a console shows it: the file's name and the line
+ * ("app.js:42"). Nothing for pages with no file (a data: URL) or when the engine doesn't say.
+ */
+export function sourceLabel(url: string | undefined, line: number | undefined): string | undefined {
+  if (!url || !/^(https?|file):/.test(url)) return undefined
+  try {
+    const { pathname, host } = new URL(url)
+    const name = pathname.split('/').filter(Boolean).pop() ?? host
+    return line ? `${name}:${line}` : name
+  } catch {
+    return undefined
+  }
+}

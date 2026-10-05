@@ -197,6 +197,33 @@ await withApp(async ({ app, win }) => {
     if (!r.synced) console.log(`${r.engine} did not repeat the Blink frame's click, typing and scroll`)
   }
 
+  // The console prompt: a line runs in every engine, and answers that differ are marked.
+  const ask = (code) => win.evaluate((code) => window.swivel.evaluate(code), code)
+  const answers = async (code) => ((await ask(code)).results ?? []).map((r) => `${r.ok}:${r.text}`).join(' ')
+  const prompt = win.getByLabel('Run JavaScript')
+  await prompt.fill('1 + 1')
+  await prompt.press('Enter')
+  const same = await win.locator('.console li.result:not(.differs) .value', { hasText: /^2$/ }).waitFor({ timeout: 10_000 }).then(() => true, () => false)
+  await prompt.fill('navigator.userAgent.includes("Firefox")')
+  await prompt.press('Enter')
+  const marks = await win.locator('.console li.result.differs').waitFor({ timeout: 10_000 }).then(() => true, () => false)
+  await prompt.press('ArrowUp')
+  const recalled = (await prompt.inputValue()) === 'navigator.userAgent.includes("Firefox")'
+  await prompt.fill('')
+  const checks = {
+    same,
+    marks,
+    recalled,
+    differ: (await answers('navigator.userAgent.includes("Firefox")')) === 'true:false true:true true:false',
+    statements: (await answers('const x = 2; x * 3')) === 'true:6 true:6 true:6',
+    awaits: (await answers('await Promise.resolve(5)')) === 'true:5 true:5 true:5',
+    throws: (await ask('nope.nope')).results?.every((r) => !r.ok && /nope/.test(r.text)) === true,
+    oneEngine: (await win.evaluate(() => window.swivel.evaluate('1', 'firefox'))).results?.map((r) => r.engine).join() === 'firefox',
+    syntax: 'syntaxError' in (await ask('1 +'))
+  }
+  console.log('console prompt:', JSON.stringify(checks))
+  const promptFailed = Object.values(checks).some((ok) => !ok)
+
   // Follow: click a link in the Gecko frame (input goes through Swivel on every OS); the other
   // frames must go there too.
   await win.waitForTimeout(1000)
@@ -208,7 +235,7 @@ await withApp(async ({ app, win }) => {
   const followFailed = Object.values(followed).some((ok) => !ok)
 
   if (process.env.SHOT) await win.screenshot({ path: process.env.SHOT })
-  const failed = followFailed || !filled || !restored || results.some((r) => !r.ready || !r.sized || !r.clicked || !r.typed || !r.scrolled || !r.pointer || !r.found || !r.synced || r.leftSlowPageMs < 0)
+  const failed = followFailed || promptFailed || !filled || !restored || results.some((r) => !r.ready || !r.sized || !r.clicked || !r.typed || !r.scrolled || !r.pointer || !r.found || !r.synced || r.leftSlowPageMs < 0)
   if (failed) {
     console.log('address:', await win.getByLabel('Address').inputValue())
     console.log('status:', await win.locator('.status').allInnerTexts())
