@@ -164,7 +164,7 @@ await withApp(async ({ app, win }) => {
 
   // One page filling the window, like a normal browser: the toolbar's Canvas toggle shows the
   // first frame alone at the window's size, and puts it back at its own size after.
-  const canvasToggle = win.getByRole('button', { name: 'Canvas', exact: true })
+  const canvasToggle = win.locator('.toolbar button[aria-label="Canvas"]') // Not the bar's own "Canvas" button, shown while one page fills the window.
   await canvasToggle.click()
   await win.waitForTimeout(1500)
   const areaWidth = await win.evaluate(() => Math.floor(document.querySelector('.canvas').clientWidth))
