@@ -18,10 +18,10 @@ export async function selfTest(win: BrowserWindow, host: EngineHost): Promise<vo
   const page =
     'data:text/html,' +
     encodeURIComponent(
-      "<script>const early = innerWidth; addEventListener('load', () => setTimeout(() => console.log('dark:' + matchMedia('(prefers-color-scheme: dark)').matches + ' width:' + innerWidth + ' early:' + early), 300))</script>"
+      "<script>const early = innerWidth; addEventListener('load', () => setTimeout(() => { console.log('dark:' + matchMedia('(prefers-color-scheme: dark)').matches + ' width:' + innerWidth + ' early:' + early); console.log('mobile: android:' + /Android/.test(navigator.userAgent) + ' touch:' + ('ontouchstart' in window) + ' density:' + devicePixelRatio) }, 300))</script>"
     )
   const reports: { engine: string; text: string }[] = []
-  host.onConsole = (engine, text) => text.startsWith('dark:') && reports.push({ engine, text })
+  host.onConsole = (engine, text) => (text.startsWith('dark:') || text.startsWith('mobile:')) && reports.push({ engine, text })
   /** Wait until every width has been reported by the engine, in dark mode. */
   const expect = async (engine: string, widths: number[]) => {
     const missing = () => widths.filter((w) => !reports.some((r) => r.engine === engine && r.text.includes(`dark:true width:${w} `)))
@@ -61,5 +61,12 @@ export async function selfTest(win: BrowserWindow, host: EngineHost): Promise<vo
     const missing = await expect(engine, [1280])
     if (missing.length) problems.push(`${engine} frame missing width 1280`)
   }
+
+  // Mobile mode on the Blink frame (a tablet, at this width): Chrome for Android's browser ID,
+  // touch input, and a tablet's screen density.
+  await ui(`document.querySelector('.frame[data-engine="chromium"] button.mobile').click()`)
+  const wanted = 'mobile: android:true touch:true density:2'
+  for (let i = 0; i < 80 && !reports.some((r) => r.engine === 'chromium' && r.text === wanted); i++) await sleep(250)
+  if (!reports.some((r) => r.engine === 'chromium' && r.text === wanted)) problems.push(`chromium mobile mode: expected "${wanted}"`)
   finish(problems)
 }

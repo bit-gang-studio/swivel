@@ -319,6 +319,9 @@ static Napi::Value Create(const Napi::CallbackInfo& info) {
   v.web = [[WKWebView alloc] initWithFrame:v.container.bounds configuration:config];
   v.web.navigationDelegate = v;
   v.web.UIDelegate = v;
+  // Mobile mode: an iPhone's or iPad's browser ID instead of this Mac's.
+  if (info.Length() > 3 && info[3].IsString() && !info[3].As<Napi::String>().Utf8Value().empty())
+    v.web.customUserAgent = [NSString stringWithUTF8String:info[3].As<Napi::String>().Utf8Value().c_str()];
   if (@available(macOS 13.3, *)) v.web.inspectable = YES;  // Safari's Web Inspector can attach.
   [v.web addObserver:v forKeyPath:@"URL" options:NSKeyValueObservingOptionNew context:nil];
   [v.container addSubview:v.web];

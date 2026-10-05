@@ -24,6 +24,19 @@ export function engineHint(engine: EngineId, platform: string, version = ''): st
   return platform === 'darwin' ? `WebKit${asIn('Safari')}: the engine in Safari (this is Apple's own WebKit)` : `WebKit${asIn('Safari')}: the engine in Safari (Playwright build)`
 }
 
+/**
+ * Tooltip for a frame's Mobile badge: what this engine emulates, and what it doesn't. No engine
+ * here is a real phone, and the label says so.
+ */
+export function mobileHint(engine: EngineId, platform: string): string {
+  const off = ' Click to turn off.'
+  if (engine === 'chromium') return "Mobile mode (emulated): Chrome for Android's browser ID, touch input and a phone's screen density. Not a real phone." + off
+  if (engine === 'firefox') return "Mobile mode (emulated): Firefox for Android's browser ID, and touch support. Screen density is not emulated. Not a real phone." + off
+  return platform === 'darwin'
+    ? "Mobile mode (emulated): iPhone or iPad Safari's browser ID only. Touch and screen density are not emulated. Not a real iPhone." + off
+    : "Mobile mode (emulated): iPhone or iPad Safari's browser ID, touch support and a phone's layout. Not a real iPhone." + off
+}
+
 export const ENGINES: EngineId[] = ['chromium', 'firefox', 'webkit']
 
 export const SIZES: { label: string; viewport: Viewport }[] = [

@@ -3,6 +3,7 @@ import type { Credentials, EngineId, InputEvent, LiveOptions, ViewRect } from '.
 import type { Asker, Emit, PageView } from './view'
 import type { FindRequest } from '../shared/find'
 import { log } from './log'
+import { mobileDensity } from './mobile'
 
 
 const LEVELS = { debug: 'debug', info: 'log', warning: 'warning', error: 'error' } as const
@@ -49,7 +50,8 @@ export class NativeChrome implements PageView {
     const wc = view.webContents
     // Identify as plain Chrome: Electron adds "Electron/x" and the app's name, and sites that check
     // the user agent would treat the page differently from real Chrome.
-    wc.setUserAgent(wc.getUserAgent().replace(/\s(?:Electron|swivel)\/\S+/gi, ''))
+    // Mobile mode: a phone's or tablet's browser ID instead (set before the first page loads).
+    wc.setUserAgent(this.opts?.mobile?.userAgent ?? wc.getUserAgent().replace(/\s(?:Electron|swivel)\/\S+/gi, ''))
     wc.on('console-message', (e) => this.emit('console', { engine: 'chromium', type: LEVELS[e.level] ?? 'log', text: e.message.replace(/%c/g, '') }))
     wc.on('did-start-loading', () => this.emit('loading', true))
     wc.on('did-stop-loading', () => this.emit('loading', false))
@@ -261,11 +263,14 @@ export class NativeChrome implements PageView {
     if (!wc || !this.rect || !this.opts || !this.committed || wc.isDestroyed()) return
     const { width, height } = this.opts.viewport
     const scale = this.scale()
-    const key = `${width}x${height}@${scale}`
+    const mobile = this.opts.mobile
+    const key = `${width}x${height}@${scale}${mobile ? ':' + mobile.kind : ''}`
     if (key === this.lastScale) return
     this.lastScale = key
     log('blink scale', key)
-    wc.enableDeviceEmulation({ screenPosition: 'desktop', screenSize: { width, height }, viewPosition: { x: 0, y: 0 }, deviceScaleFactor: 0, viewSize: { width, height }, scale })
+    // Mobile mode: the page is laid out as on a phone (its viewport tag is honoured) at the
+    // device's screen density.
+    wc.enableDeviceEmulation({ screenPosition: mobile ? 'mobile' : 'desktop', screenSize: { width, height }, viewPosition: { x: 0, y: 0 }, deviceScaleFactor: mobile ? mobileDensity(mobile.kind) : 0, viewSize: { width, height }, scale })
   }
 
   private async applyEmulation(): Promise<void> {
@@ -283,6 +288,11 @@ export class NativeChrome implements PageView {
       } catch {
         // Attached elsewhere.
       }
+    }
+    if (wc.debugger.isAttached() && this.opts.mobile) {
+      // Mobile mode: touch input, with the mouse acting as a finger.
+      void wc.debugger.sendCommand('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 }).catch(() => {})
+      void wc.debugger.sendCommand('Emulation.setEmitTouchEventsForMouse', { enabled: true, configuration: 'mobile' }).catch(() => {})
     }
     if (wc.debugger.isAttached()) {
       await Promise.race([

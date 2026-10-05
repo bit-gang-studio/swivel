@@ -6,8 +6,11 @@ import { findInPage, type FindRequest, type FindResult } from '../shared/find'
 
 
 interface Addon {
-  /** store: the Swivel window's data key; views with the same key share one in-memory data store. */
-  create(parent: Buffer, onEvent: (type: string, a: string, b: string) => void, store: string): number
+  /**
+   * store: the Swivel window's data key; views with the same key share one in-memory data store.
+   * userAgent: a browser ID to send instead of Safari's (mobile mode), or ''.
+   */
+  create(parent: Buffer, onEvent: (type: string, a: string, b: string) => void, store: string, userAgent: string): number
   /** Answer an 'auth' or 'trust' event: username and password, any string to trust, or nothing to cancel. */
   answerChallenge(id: number, request: number, username?: string, password?: string): void
   /** Test hook: a real click at x, y in window points, hit-tested by macOS like a user's. */
@@ -75,7 +78,7 @@ export class NativeSafari implements PageView {
       else if (type === 'error') this.emit('error', a)
       else if (type === 'result') this.results.get(a)?.(b)
       else if (type === 'auth' || type === 'trust') void this.answer(type, Number(a), b)
-    }, this.store)
+    }, this.store, this.userAgent)
   }
 
   /** A sign-in request or an untrusted certificate: the window asks once for all its views. */
@@ -95,7 +98,11 @@ export class NativeSafari implements PageView {
 
   private triedAuth = new Map<string, Credentials>()
 
+  /** Mobile mode's browser ID, known before the view is made. */
+  private userAgent = ''
+
   async update(opts: LiveOptions): Promise<void> {
+    this.userAgent = opts.mobile?.userAgent ?? ''
     const id = (this.id ??= this.create())
     const sameUrl = this.opts?.url === opts.url
     this.opts = opts

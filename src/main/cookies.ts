@@ -91,11 +91,13 @@ export class CookieJar {
   }
 
   /**
-   * Make sure an engine's latest cookies have reached the others, e.g. before they follow it to
-   * the page a sign-in led to.
+   * Make sure every engine's latest cookies have reached the others, e.g. before frames follow
+   * one to the page a sign-in led to.
    */
-  settle(name: string): Promise<void> {
-    return this.run(() => this.pull(name))
+  settle(): Promise<void> {
+    return this.run(async () => {
+      for (const name of [...this.stores.keys()]) await this.pull(name)
+    })
   }
 
   dispose(): void {

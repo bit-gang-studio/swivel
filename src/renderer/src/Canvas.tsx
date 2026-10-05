@@ -1,7 +1,7 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
-import type { CanvasFrame, EngineId, Viewport } from '../../shared/types'
+import type { CanvasFrame, EngineId, MobileKind, Viewport } from '../../shared/types'
 import { BUILT_IN_SETS, DEVICES, SNAP_WIDTHS, loadSets, saveSets, type FrameSet } from './devices'
-import { ENGINES, engineHint, engineLabel, engineWithBrowser } from './engines'
+import { ENGINES, engineHint, engineLabel, engineWithBrowser, mobileHint } from './engines'
 import { Icon, ICONS } from './icons'
 import { LiveView } from './LiveView'
 
@@ -32,10 +32,10 @@ let nextId = 1
 const newId = () => `f${nextId++}`
 
 /** Frames side by side in a row, tops aligned. */
-function inRow(frames: { engine: EngineId; viewport: Viewport; id?: string }[]): Placed[] {
+function inRow(frames: { engine: EngineId; viewport: Viewport; mobile?: MobileKind; id?: string }[]): Placed[] {
   let x = 0
   return frames.map((f) => {
-    const placed = { id: f.id ?? newId(), engine: f.engine, viewport: f.viewport, x, y: 0 }
+    const placed = { id: f.id ?? newId(), engine: f.engine, viewport: f.viewport, mobile: f.mobile, x, y: 0 }
     x += f.viewport.width + GAP
     return placed
   })
@@ -124,10 +124,10 @@ export const Canvas = forwardRef<CanvasHandle, { url: string; dark: boolean; onS
 
   // The main process only needs to hear when frames, engines or sizes change, not positions.
   const specs = frames.map((f) => (filling && f.id === filling.id ? filling : f))
-  const shape = specs.map((f) => `${f.id}:${f.engine}:${f.viewport.width}x${f.viewport.height}`).join(',')
+  const shape = specs.map((f) => `${f.id}:${f.engine}:${f.viewport.width}x${f.viewport.height}:${f.mobile ?? ''}`).join(',')
   useEffect(() => {
     void window.swivel.setCanvas(
-      specs.map(({ id, engine, viewport }) => ({ id, engine, viewport })),
+      specs.map(({ id, engine, viewport, mobile }) => ({ id, engine, viewport, mobile })),
       { url, colorScheme: dark ? 'dark' : 'light' }
     )
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -142,7 +142,7 @@ export const Canvas = forwardRef<CanvasHandle, { url: string; dark: boolean; onS
 
   const change = useCallback((id: string, c: Partial<Placed>) => {
     setFrames((all) => all.map((f) => (f.id === id ? { ...f, ...c } : f)))
-    if (c.engine || c.viewport) setSetName(null)
+    if (c.engine || c.viewport || 'mobile' in c) setSetName(null)
   }, [])
 
   function applySet(set: FrameSet) {
@@ -157,7 +157,7 @@ export const Canvas = forwardRef<CanvasHandle, { url: string; dark: boolean; onS
     const trimmed = name.trim()
     setNaming(null)
     if (!trimmed || BUILT_IN_SETS.some((s) => s.name === trimmed)) return
-    const set = { name: trimmed, frames: frames.map(({ engine, viewport }) => ({ engine, viewport })) }
+    const set = { name: trimmed, frames: frames.map(({ engine, viewport, mobile }) => ({ engine, viewport, mobile })) }
     const next = [...userSets.filter((s) => s.name !== trimmed), set]
     setUserSets(next)
     saveSets(next)
@@ -190,13 +190,13 @@ export const Canvas = forwardRef<CanvasHandle, { url: string; dark: boolean; onS
     const picked = await window.swivel.pick(items, at)
     if (picked === null) return
     const device = picked.startsWith('engine:') ? { engine: picked.slice('engine:'.length) as EngineId, viewport: NEW_FRAME } : DEVICES[Number(picked)]
-    if (device) append(device.engine, device.viewport)
+    if (device) append(device.engine, device.viewport, 'mobile' in device ? device.mobile : undefined)
   }
 
   /** Add a frame at the end of the row, select it, and bring every frame into view. */
-  function append(engine: EngineId, viewport: Viewport) {
+  function append(engine: EngineId, viewport: Viewport, mobile?: MobileKind) {
     const right = Math.max(0, ...frames.map((f) => f.x + f.viewport.width + GAP))
-    const frame = { id: newId(), engine, viewport, x: right, y: Math.min(0, ...frames.map((f) => f.y)) }
+    const frame = { id: newId(), engine, viewport, mobile, x: right, y: Math.min(0, ...frames.map((f) => f.y)) }
     const next = [...frames, frame]
     setFrames(next)
     setSetName(null)
@@ -208,7 +208,7 @@ export const Canvas = forwardRef<CanvasHandle, { url: string; dark: boolean; onS
   /** The same page again, to change one thing on: its engine or its size. */
   function duplicate(id = selected ?? focused ?? undefined) {
     const source = frames.find((f) => f.id === id)
-    if (source) append(source.engine, source.viewport)
+    if (source) append(source.engine, source.viewport, source.mobile)
   }
 
   function zoomTo(zoom: number) {
@@ -517,6 +517,17 @@ function Frame({ frame, zoom, left, top, clip, selected, filling, onSelect, onCh
             {size.width} × {size.height}
           </button>
         )}
+        {/* Mobile mode: always shown while it's on, so a frame that's pretending says so. */}
+        <button
+          type="button"
+          className="mobile"
+          aria-label="Mobile mode"
+          aria-pressed={!!frame.mobile}
+          data-tip={frame.mobile ? mobileHint(frame.engine, window.swivel.platform) : 'Mobile mode: act like a phone or tablet (browser ID, and touch where this engine can). Reloads the page.'}
+          onClick={() => onChange({ mobile: frame.mobile ? undefined : frame.viewport.width < 600 ? 'phone' : 'tablet' })}
+        >
+          Mobile
+        </button>
         <span className="spacer" />
         <button type="button" aria-label="Rotate" data-tip="Rotate: swap width and height" onClick={() => onChange({ viewport: { width: frame.viewport.height, height: frame.viewport.width } })}>
           <Icon d={ICONS.rotate} size={13} />

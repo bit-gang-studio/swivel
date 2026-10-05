@@ -32,14 +32,21 @@ function getBrowser(engine: EngineId, windowed: boolean): Promise<Browser> {
   return browser
 }
 
-function getContext(engine: EngineId, storageId: string, win?: BrowserWindow): Promise<BrowserContext> {
-  const key = `${engine}:${storageId}`
+/** A window's context for an engine. Mobile mode has its own: a browser ID belongs to a context. */
+const contextName = (engine: EngineId, mobile?: LiveOptions['mobile']) => (mobile ? `${engine}-${mobile.kind}` : engine)
+
+function getContext(engine: EngineId, storageId: string, win?: BrowserWindow, mobile?: LiveOptions['mobile']): Promise<BrowserContext> {
+  const key = `${contextName(engine, mobile)}:${storageId}`
   let context = contexts.get(key)
   if (!context) {
     const windowed = engine === 'firefox' && !!win && windowedFirefoxStatus() === 'on'
     // Real-window Firefox is parked off-screen at 1x; the page still renders at the display's density.
     const scale = windowed ? screen.getDisplayMatching(win!.getBounds()).scaleFactor : screen.getPrimaryDisplay().scaleFactor
-    context = getBrowser(engine, windowed).then((b) => b.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: scale }))
+    // Mobile mode: the phone's or tablet's browser ID, and touch support reported to the page.
+    // WebKit can also lay the page out as a phone does (isMobile); Firefox can't. The screen
+    // density stays the display's: frames are captured at it.
+    const mobileOptions = mobile ? { userAgent: mobile.userAgent, hasTouch: true, ...(engine === 'webkit' ? { isMobile: true } : {}) } : {}
+    context = getBrowser(engine, windowed).then((b) => b.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: scale, ...mobileOptions }))
     context.catch(() => contexts.delete(key))
     contexts.set(key, context)
   }
@@ -150,9 +157,9 @@ export class StreamedView implements PageView {
   private triedAuth = new Map<string, Credentials>()
 
   /** Called with the window's browser context before its first page loads (to give it the window's cookies). */
-  private onContext?: (context: BrowserContext) => Promise<void>
+  private onContext?: (context: BrowserContext, name: string) => Promise<void>
 
-  constructor(engine: EngineId, emit: Emit, storageId: string, ask: Asker, win?: BrowserWindow, onContext?: (context: BrowserContext) => Promise<void>) {
+  constructor(engine: EngineId, emit: Emit, storageId: string, ask: Asker, win?: BrowserWindow, onContext?: (context: BrowserContext, name: string) => Promise<void>) {
     this.storageId = storageId
     this.ask = ask
     this.onContext = onContext
@@ -194,8 +201,8 @@ export class StreamedView implements PageView {
   }
 
   private async createPage(): Promise<Page> {
-    const context = await getContext(this.engine, this.storageId, this.win)
-    await this.onContext?.(context)
+    const context = await getContext(this.engine, this.storageId, this.win, this.opts?.mobile)
+    await this.onContext?.(context, contextName(this.engine, this.opts?.mobile))
     const page = await context.newPage()
     this.page = page
     if (this.engine === 'firefox' && this.win && windowedFirefoxStatus() === 'on' && this.opts) {

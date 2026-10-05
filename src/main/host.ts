@@ -9,8 +9,10 @@ import type { CanvasFrame, Credentials, EngineId, InputEvent, LiveOptions, ViewE
 import { StreamedView, releaseContexts } from './live'
 import { NativeChrome } from './native-chrome'
 import { NativeSafari, webkitAddon } from './native-safari'
+import type { BrowserContext } from 'playwright-core'
 import type { Asker, Emit, EmitLive, PageView } from './view'
 import { log } from './log'
+import { mobileUserAgent } from './mobile'
 import { SYNC_PREFIX, syncApplyScript, syncInstallScript, type SyncMessage } from '../shared/sync'
 import { CookieJar, electronStore, nativeWebKitStore, playwrightStore, type NativeCookies } from './cookies'
 
@@ -25,7 +27,14 @@ export function nativeEngines(): EngineId[] {
  * The version of each engine Swivel runs, as its browser numbers it (Chrome 152, Firefox 155,
  * Safari 18.6), for the UI to show what a page is being tested against.
  */
+let knownVersions: Record<EngineId, string> | undefined
+
 export function engineVersions(): Record<EngineId, string> {
+  return (knownVersions ??= readEngineVersions())
+}
+
+/** Read once: it asks macOS for Safari's version. */
+function readEngineVersions(): Record<EngineId, string> {
   const versions: Record<EngineId, string> = { chromium: process.versions.chrome?.split('.')[0] ?? '', firefox: '', webkit: '' }
   try {
     const require = createRequire(import.meta.url)
@@ -208,7 +217,7 @@ export class EngineHost {
         ? new NativeChrome(this.win, emit, `swivel-${this.storageId}`, this.asker)
         : engine === 'webkit' && webkitAddon
           ? new NativeSafari(this.win, emit, webkitAddon, this.storageId, this.asker)
-          : new StreamedView(engine, emit, this.storageId, this.asker, this.win, (context) => this.jar.attach(engine, playwrightStore(context)))
+          : new StreamedView(engine, emit, this.storageId, this.asker, this.win, (context: BrowserContext, name: string) => this.jar.attach(name, playwrightStore(context)))
     this.views.set(key, view)
     return view
   }
@@ -301,8 +310,7 @@ export class EngineHost {
     for (const [key] of followers) this.urls.set(key, url)
     // The move may come from a sign-in: its cookies reach the other engines first, or they'd
     // load the page signed out.
-    const leader = this.views.get(from)?.engine
-    void (leader ? this.jar.settle(leader) : Promise.resolve()).then(() => {
+    void this.jar.settle().then(() => {
       for (const [key, view] of followers) if (this.views.get(key) === view) void view.navigate(url)
     })
   }
@@ -357,12 +365,13 @@ export class EngineHost {
         const key = canvasKey(f.id)
         // A frame that hasn't changed is left alone (one frame resizing must not disturb the rest).
         const was = before?.get(f.id)
-        if (was && this.views.has(key) && was.engine === f.engine && was.viewport.width === f.viewport.width && was.viewport.height === f.viewport.height) return
-        if (this.views.get(key)?.engine !== f.engine) this.dropView(key) // Engine changed: a new page.
+        if (was && this.views.has(key) && was.engine === f.engine && was.mobile === f.mobile && was.viewport.width === f.viewport.width && was.viewport.height === f.viewport.height) return
+        // A new engine, or mobile mode on or off (a different browser ID): a new page.
+        if (this.views.get(key)?.engine !== f.engine || (was && was.mobile !== f.mobile)) this.dropView(key)
         if (!this.urls.has(key)) this.urls.set(key, url)
         const view = this.views.get(key) ?? this.makeView(key, f.engine)
         try {
-          await view.update({ ...this.settings!, url: this.urls.get(key) ?? url, engine: f.engine, viewport: f.viewport })
+          await view.update({ ...this.settings!, url: this.urls.get(key) ?? url, engine: f.engine, viewport: f.viewport, mobile: this.mobileFor(f) })
         } catch (err) {
           log('frame', f.id, f.engine, 'update failed', String(err))
         }
@@ -370,6 +379,12 @@ export class EngineHost {
         log('frame', f.id, f.engine, this.hiddenFrames.has(f.id) ? 'ready (hidden)' : 'shown')
       })
     )
+  }
+
+  private versions = engineVersions()
+
+  private mobileFor(f: CanvasFrame): LiveOptions['mobile'] {
+    return f.mobile ? { kind: f.mobile, userAgent: mobileUserAgent(f.engine, f.mobile, this.versions) } : undefined
   }
 
   /** Where a canvas frame's page sits, and the canvas area it's cut off at. */
@@ -434,7 +449,7 @@ export class EngineHost {
     await Promise.all(
       [...this.views].map(([key, v]) => {
         const f = key.startsWith('canvas:') ? this.canvas?.get(key.slice(7)) : undefined
-        return v.update({ ...this.settings!, url: this.urls.get(key) ?? url ?? this.settings!.url, engine: v.engine, ...(f ? { viewport: f.viewport } : {}) })
+        return v.update({ ...this.settings!, url: this.urls.get(key) ?? url ?? this.settings!.url, engine: v.engine, ...(f ? { viewport: f.viewport, mobile: this.mobileFor(f) } : {}) })
       })
     )
   }

@@ -5,11 +5,16 @@ export interface Viewport {
   height: number
 }
 
+/** Mobile mode: a frame acts like a phone or a tablet, as far as its engine can (emulated). */
+export type MobileKind = 'phone' | 'tablet'
+
 export interface LiveOptions {
   engine: EngineId
   url: string
   viewport: Viewport
   colorScheme: 'light' | 'dark'
+  /** Set when the view is made; a view never changes it. userAgent: the browser ID to send. */
+  mobile?: { kind: MobileKind; userAgent: string }
   /** Screen pixel density, so streamed frames are sharp on Retina and HiDPI screens. */
   pixelRatio?: number
 }
@@ -89,5 +94,6 @@ export interface CanvasFrame {
   id: string
   engine: EngineId
   viewport: Viewport
+  mobile?: MobileKind
 }
 

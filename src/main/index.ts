@@ -75,8 +75,7 @@ ipcMain.handle('swivel:start', (e, opts: LiveOptions) => sessions.get(e.sender.i
 ipcMain.handle('swivel:navigate', (e, url: string) => sessions.get(e.sender.id)?.navigate(url))
 ipcMain.handle('swivel:history', (e, action: 'back' | 'forward' | 'reload') => sessions.get(e.sender.id)?.history(action))
 ipcMain.on('swivel:native-engines', (e) => (e.returnValue = nativeEngines()))
-const versions = engineVersions() // Read once: it asks macOS for Safari's version.
-ipcMain.on('swivel:engine-versions', (e) => (e.returnValue = versions))
+ipcMain.on('swivel:engine-versions', (e) => (e.returnValue = engineVersions()))
 ipcMain.handle('swivel:find', (e, req: FindRequest) => sessions.get(e.sender.id)?.find(req))
 ipcMain.handle('swivel:resize', (e, viewport: Viewport) => sessions.get(e.sender.id)?.resize(viewport))
 ipcMain.handle('swivel:rect', (e, rect: ViewRect) => sessions.get(e.sender.id)?.setRect(rect))
