@@ -214,12 +214,16 @@ export class EngineHost {
       this.reportDownload(download)
       return path
     },
+    popup: () => {
+      if (this.popupOpen) return false
+      return (this.popupOpen = true)
+    },
     // A sign-in popup usually leaves new cookies. Once they've been copied to the other engines,
-    // their frames reload to show the signed-in page (the popup's own engine was told by it).
-    popupClosed: (engine) => {
-      if (!this.jar.sharing) return
+    // the other frames reload to show the signed-in page (the popup told the page that opened it).
+    popupClosed: (opener) => {
+      this.popupOpen = false
       void this.jar.settle().then(() => {
-        for (const view of this.views.values()) if (view.engine !== engine) void view.history('reload')
+        for (const view of this.views.values()) if (view !== opener && (this.jar.sharing || view.engine === opener.engine)) void view.history('reload')
       })
     },
     downloaded: (path, ok) => {
@@ -229,6 +233,9 @@ export class EngineHost {
       this.reportDownload(download)
     }
   }
+
+  /** A popup window is open: one at a time per window. */
+  private popupOpen = false
 
   /** Test hook: the files a page's file input gets, in place of asking. */
   testFiles?: string[]

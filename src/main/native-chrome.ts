@@ -95,7 +95,8 @@ export class NativeChrome implements PageView {
     // own, on this window's data, that can talk to the page that opened it. A link to a new tab
     // loads here instead.
     wc.setWindowOpenHandler(({ url, disposition }) => {
-      if (disposition === 'new-window')
+      if (disposition === 'new-window') {
+        if (!this.ask.popup()) return { action: 'deny' }
         return {
           action: 'allow',
           overrideBrowserWindowOptions: {
@@ -107,6 +108,7 @@ export class NativeChrome implements PageView {
             webPreferences: { partition: this.partition, sandbox: true, contextIsolation: true, nodeIntegration: false }
           }
         }
+      }
       void wc.loadURL(url)
       return { action: 'deny' }
     })
@@ -129,7 +131,7 @@ export class NativeChrome implements PageView {
       })
       popup.on('closed', () => {
         this.popups.delete(popup)
-        this.ask.popupClosed('chromium')
+        this.ask.popupClosed(this)
       })
       if (process.env.SWIVEL_HIDDEN) popup.showInactive()
       else popup.show()

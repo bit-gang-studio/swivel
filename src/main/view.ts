@@ -24,8 +24,13 @@ export interface Asker {
    * already saving the same file (a link opened in every frame starts it in each).
    */
   download(name: string, engine: EngineId): string | null
-  /** A popup an engine's page opened (a sign-in window, say) has closed. */
-  popupClosed(engine: EngineId): void
+  /**
+   * A page wants to open a popup window. False: the window already has one open (a click repeated
+   * in every frame would open one each).
+   */
+  popup(): boolean
+  /** The popup a view's page opened (a sign-in window, say) has closed. */
+  popupClosed(opener: PageView): void
   /** A download to that path ended. */
   downloaded(path: string, ok: boolean): void
 }

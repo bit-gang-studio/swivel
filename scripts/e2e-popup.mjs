@@ -69,6 +69,24 @@ await withApp(async ({ app, win }) => {
   // The other engines get the cookie and reload, signed in, still on the same page.
   for (const tag of TAGS.slice(1)) expect(`${tag} reloads signed in`, await seen(tag, 'ready cookie:[token=abc]'), await win.locator('.console').innerText())
   expect('no frame went to the sign-in page', (await win.getByLabel('Address').inputValue()).endsWith('/app'), await win.getByLabel('Address').inputValue())
+
+  // Several Blink frames (the Responsive set), and the click repeated in each: still one popup.
+  await win.getByRole('button', { name: 'Responsive', exact: true }).click()
+  await win.waitForTimeout(4000)
+  await app.evaluate(() =>
+    globalThis.swivelHost.frameView('chromium').testInput([
+      { type: 'mouseDown', x: 200, y: 20, button: 'left', clickCount: 1 },
+      { type: 'mouseUp', x: 200, y: 20, button: 'left', clickCount: 1 }
+    ])
+  )
+  let most = 0
+  for (let i = 0; i < 12; i++) {
+    most = Math.max(most, (await windows()).length - before)
+    await win.waitForTimeout(100)
+  }
+  expect('four Blink frames open one popup between them', most === 1, most)
+  for (let i = 0; i < 60 && (await windows()).length > before; i++) await win.waitForTimeout(100)
+  expect('and it closes', (await windows()).length === before, await windows())
   return failed ? 1 : 0
 }, { exit: false }).then((code) => {
   server.close()
