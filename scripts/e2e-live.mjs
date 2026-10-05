@@ -207,12 +207,19 @@ await withApp(async ({ app, win }) => {
   await prompt.fill('navigator.userAgent.includes("Firefox")')
   await prompt.press('Enter')
   const marks = await win.locator('.console li.result.differs').waitFor({ timeout: 10_000 }).then(() => true, () => false)
+  // An object comes back as a tree; a field the engines disagree on is marked in it.
+  await prompt.fill('({ a: 1, gecko: navigator.userAgent.includes("Firefox") })')
+  await prompt.press('Enter')
+  const tree = await win.locator('.console li.result.differs .json-row.differs', { hasText: 'gecko' }).waitFor({ timeout: 10_000 }).then(() => true, () => false)
+  await prompt.fill('navigator.userAgent.includes("Firefox")')
+  await prompt.press('Enter')
   await prompt.press('ArrowUp')
   const recalled = (await prompt.inputValue()) === 'navigator.userAgent.includes("Firefox")'
   await prompt.fill('')
   const checks = {
     same,
     marks,
+    tree,
     recalled,
     differ: (await answers('navigator.userAgent.includes("Firefox")')) === 'true:false true:true true:false',
     statements: (await answers('const x = 2; x * 3')) === 'true:6 true:6 true:6',

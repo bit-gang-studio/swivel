@@ -86,6 +86,37 @@ await withApp(async ({ app, win }) => {
   solo = snap.cookies.find((c) => c.name === 'solo')
   expect('sharing back on: every engine has it', !!solo && IDS.every((e) => solo.values[e] === '1'), solo)
 
+  // The JSON viewer: a stored JSON value opens as a tree, a field the engines disagree on is
+  // marked, and a field changed there is changed in every engine.
+  const prefs = (theme) => JSON.stringify({ theme, user: { name: 'Ada', seen: 1900000000 } })
+  const setPrefs = (theme) => act({ type: 'set-item', origin: seenItem.origin, area: 'local', key: 'prefs', value: prefs(theme) })
+  const themes = async () => (await storage()).items.find((i) => i.area === 'local' && i.key === 'prefs')?.values ?? {}
+  const shows = (locator, timeout = 8000) => locator.first().waitFor({ timeout }).then(() => true, () => false)
+  await setPrefs('dark')
+  await win.waitForTimeout(500)
+  await app.evaluate((_, value) => globalThis.swivelHost.frameView('firefox').run(`localStorage.setItem('prefs', ${JSON.stringify(value)})`), prefs('light'))
+  await win.getByRole('tab', { name: 'Storage' }).click()
+  await win.locator('.storage nav button', { hasText: 'Local storage' }).click()
+  const row = win.locator('.storage tbody tr', { has: win.locator('th', { hasText: 'prefs' }) })
+  await row.locator('th').click({ timeout: 10_000 })
+  const differing = win.locator('.storage .json-row.differs', { hasText: 'theme' })
+  expect('JSON viewer marks the field that differs, with each engine\'s value', (await shows(differing)) && /Gecko\s*"light"/.test(await differing.first().innerText()), await win.locator('.storage-main').innerText())
+  expect('JSON viewer reads a number as a date', await shows(win.locator('.storage .json-row .hint'), 2000), null)
+  expect('JSON viewer offers no edit while the engines differ', (await win.locator('.storage .json-row .edit').count()) === 0, null)
+  await setPrefs('dark')
+  const field = win.locator('.storage .json-row', { hasText: 'theme' }).locator('.edit')
+  await field.click({ timeout: 10_000 })
+  await win.getByLabel('New value for theme').fill('blue')
+  await win.getByLabel('New value for theme').press('Enter')
+  let edited = {}
+  for (let i = 0; i < 20; i++) {
+    edited = await themes()
+    if (IDS.every((e) => edited[e] === prefs('blue'))) break
+    await win.waitForTimeout(250)
+  }
+  expect('a field changed in the JSON viewer changes in every engine', IDS.every((e) => edited[e] === prefs('blue')), edited)
+  await win.getByRole('tab', { name: 'Console' }).click()
+
   const before = app.windows().length
   await app.evaluate(({ Menu }) => Menu.getApplicationMenu().items.find((i) => i.label === 'File').submenu.items.find((i) => i.label === 'New Window').click())
   let second

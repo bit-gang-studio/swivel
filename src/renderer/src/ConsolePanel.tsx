@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ConsoleEntry, EngineId } from '../../shared/types'
 import type { EvalResult } from '../../shared/evaluate'
+import type { Json } from '../../shared/json'
 import { ENGINES, engineLabel } from './engines'
+import { JsonTree } from './JsonTree'
 
 /** A line in the console: a page's message, a line typed at the prompt, or the engines' answers to one. */
 export type ConsoleItem =
@@ -32,6 +34,16 @@ function savedHistory(): string[] {
 
 /** Whether the engines gave different answers (or some threw and some didn't). */
 const disagree = (results: EvalResult[]) => new Set(results.map((r) => `${r.ok}\n${r.text}`)).size > 1
+
+/** An object or array an engine answered with, to show as a tree. */
+function structure(result: EvalResult): Json | undefined {
+  if (!result.ok || (result.type !== 'object' && result.type !== 'array')) return undefined
+  try {
+    return JSON.parse(result.text) as Json
+  } catch {
+    return undefined // Too long to send whole.
+  }
+}
 
 /**
  * Messages and errors from every frame, tagged by engine, and a prompt: a line of JavaScript
@@ -186,6 +198,8 @@ export function ConsolePanel({ items, onClear, onRun }: { items: ConsoleItem[]; 
                     No frames to run it in.
                   </li>
                 )
+              const trees = item.results.map(structure)
+              const asTree = trees.every((t) => t !== undefined)
               if (!disagree(item.results))
                 return (
                   <li key={i} className={item.results[0].ok ? 'result' : 'result error'} data-tip={time(item.at)}>
@@ -197,12 +211,13 @@ export function ConsolePanel({ items, onClear, onRun }: { items: ConsoleItem[]; 
                         <span key={r.engine} className={`dot ${r.engine}`} />
                       ))}
                     </span>{' '}
-                    <span className={`value ${item.results[0].type}`}>{item.results[0].text}</span>
+                    {asTree ? <JsonTree sides={[{ value: trees[0] }]} /> : <span className={`value ${item.results[0].type}`}>{item.results[0].text}</span>}
                   </li>
                 )
               return (
-                <li key={i} className="result differs" data-tip="The engines gave different answers">
-                  {item.results.map((r) => (
+                <li key={i} className="result differs" data-tip={asTree ? undefined : 'The engines gave different answers'}>
+                  {asTree && <JsonTree sides={item.results.map((r, n) => ({ engine: r.engine, value: trees[n] }))} />}
+                  {!asTree && item.results.map((r) => (
                     <div key={r.engine} className={r.ok ? undefined : 'error'}>
                       <span className={`tag ${r.engine}`}>{engineLabel(r.engine)}</span> <span className={`value ${r.type}`}>{r.text}</span>
                     </div>

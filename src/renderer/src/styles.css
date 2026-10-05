@@ -268,3 +268,41 @@ button, input, select { font: inherit; color: inherit; }
 .prompt .mark { color: var(--accent); font: 600 13px ui-monospace, 'SF Mono', Menlo, monospace; }
 .prompt input { flex: 1; min-width: 0; height: 26px; border: none; outline: none; background: transparent; font: 12.5px ui-monospace, 'SF Mono', Menlo, monospace; }
 .prompt select { height: 24px; border: 1px solid var(--line); border-radius: 12px; padding: 0 8px; background: var(--surface); font-size: 12px; cursor: pointer; }
+
+/* JSON viewer */
+.json-tree { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px; line-height: 20px; white-space: normal; cursor: default; }
+.console .json-tree { margin: 2px 0 0 6px; }
+.json-tools { display: flex; align-items: center; gap: 12px; padding: 2px 8px 6px; font: 12px system-ui, sans-serif; }
+.json-tools input[type='search'] { height: 24px; width: 220px; padding: 0 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); font-size: 12px; outline: none; }
+.json-tools input[type='search']:focus { border-color: var(--accent); }
+.json-tools label { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); }
+.json-row { position: relative; padding-right: 8px; border-radius: 4px; word-break: break-word; }
+.json-row:hover { background: var(--hover); }
+.json-row.differs { box-shadow: inset 2px 0 0 var(--error); }
+.json-row.more { color: var(--muted); }
+.json-row .twist { display: inline-block; width: 14px; color: var(--muted); }
+.json-row .key { color: var(--accent); }
+.json-row .key::after { content: ':'; color: var(--muted); margin-right: 6px; }
+.json-row .summary, .json-row .hint, .json-row .missing { color: var(--muted); }
+.json-row .hint { margin-left: 8px; font: 11px system-ui, sans-serif; }
+.json-row .hint::before { content: '→ '; }
+.json-row .flag { margin-left: 6px; padding: 0 5px; border-radius: 4px; background: var(--bg); color: var(--muted); font: 11px system-ui, sans-serif; }
+.json-row .side { padding-left: 14px; }
+.json-row .side .tag { display: inline-block; min-width: 52px; margin-right: 8px; padding: 0 6px; border-radius: 4px; background: color-mix(in srgb, var(--engine, var(--muted)) 12%, transparent); color: var(--engine, var(--muted)); text-align: center; font: 600 11px system-ui, sans-serif; line-height: 17px; }
+.json-row .value.string { color: #0f766e; }
+.json-row .value.number { color: #7c3aed; }
+.json-row .value.boolean, .json-row .value.null { color: #b4540a; }
+.json-row .edit { border: none; background: transparent; padding: 0; font: inherit; color: inherit; text-align: left; cursor: text; }
+.json-row .edit:hover .value { text-decoration: underline dotted; }
+.json-row input { width: min(420px, 60%); box-sizing: border-box; border: 1px solid var(--accent); border-radius: 4px; font: inherit; padding: 0 4px; outline: none; background: var(--bg); }
+.json-row .actions { margin-left: 10px; visibility: hidden; }
+.json-row:hover > .actions, .json-row:focus-within > .actions { visibility: visible; }
+.json-row .copy { height: 18px; margin-right: 4px; padding: 0 7px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); color: var(--muted); font: 11px system-ui, sans-serif; cursor: pointer; }
+.json-row .copy:hover { color: var(--text); }
+@media (prefers-color-scheme: dark) {
+  .json-row .value.string { color: #5eead4; }
+  .json-row .value.number { color: #c4b5fd; }
+  .json-row .value.boolean, .json-row .value.null { color: #fdba74; }
+}
+.storage tr.detail, .storage tr.detail:hover { background: var(--bg); cursor: default; }
+.storage tr.detail td { padding: 6px 12px 10px; white-space: normal; overflow: visible; }

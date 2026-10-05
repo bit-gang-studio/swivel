@@ -1,7 +1,9 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useState, type ReactNode } from 'react'
 import type { EngineId } from '../../shared/types'
 import type { StorageAction, StorageSnapshot } from '../../shared/storage'
+import { decode, setAt, type Json, type JsonPath } from '../../shared/json'
 import { engineLabel } from './engines'
+import { JsonTree, type JsonSide } from './JsonTree'
 
 type Section = 'cookies' | 'local' | 'session' | 'databases'
 
@@ -9,6 +11,21 @@ const size = (bytes: number) => (bytes < 1024 ? `${bytes} B` : bytes < 1024 * 10
 
 /** A value differs between engines: some have it and some don't, or they hold different values. */
 const differs = (values: Partial<Record<EngineId, string>>, engines: EngineId[]) => new Set(engines.map((e) => values[e] ?? '\u0000')).size > 1
+
+/**
+ * A row's values as a tree, when every engine that has the row holds JSON (or every one a token).
+ * edit: write a changed field back; only when every engine holds the same text, so an edit can't
+ * quietly overwrite a difference.
+ */
+function structure(row: Row, engines: EngineId[]): { kind: 'JSON' | 'JWT'; sides: JsonSide[]; edit?: (path: JsonPath, value: Json) => StorageAction } | undefined {
+  const decoded = engines.map((e) => (row.values[e] === undefined ? undefined : decode(row.values[e])))
+  const first = decoded.find((d) => d)
+  if (!first || engines.some((e, i) => row.values[e] !== undefined && decoded[i]?.kind !== first.kind)) return undefined
+  const sides = engines.map((engine, i) => ({ engine, value: decoded[i]?.value }))
+  if (differs(row.values, engines)) return { kind: first.kind, sides }
+  const { encode } = first
+  return { kind: first.kind, sides: sides.slice(0, 1), edit: encode && ((path, value) => row.save(encode(setAt(first.value, path, value)))) }
+}
 
 /** A row of any section, in one shape. */
 interface Row {
@@ -227,34 +244,46 @@ export function StoragePanel() {
                     </tr>
                   </thead>
                   <tbody>
-                    {shown.map((row) => (
-                      <tr key={row.id} className={[differs(row.values, engines) && 'differs', open === row.id && 'open'].filter(Boolean).join(' ') || undefined} onClick={() => setOpen(open === row.id ? null : row.id)}>
-                        <th scope="row" data-tip={open === row.id ? 'Click to shorten the values' : 'Click to show the values in full'}>
-                          {row.name}
-                          {row.flags.map(([flag, meaning]) => (
-                            <span key={flag} className="flag" data-tip={meaning}>
-                              {flag}
-                            </span>
-                          ))}
-                        </th>
-                        <td className="site">{row.site}</td>
-                        {engines.map((e) => cell(row, e))}
-                        <td className="act">
-                          <button
-                            type="button"
-                            className="delete"
-                            aria-label={`Delete ${row.name}`}
-                            data-tip="Delete this in every engine"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              act(row.remove)
-                            }}
-                          >
-                            ×
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                    {shown.map((row) => {
+                      const tree = structure(row, engines)
+                      return (
+                        <Fragment key={row.id}>
+                          <tr className={[differs(row.values, engines) && 'differs', open === row.id && 'open'].filter(Boolean).join(' ') || undefined} onClick={() => setOpen(open === row.id ? null : row.id)}>
+                            <th scope="row" data-tip={open === row.id ? 'Click to shorten the values' : 'Click to show the values in full'}>
+                              {row.name}
+                              {[...row.flags, ...(tree ? [[tree.kind, tree.kind === 'JWT' ? 'A token (JWT): click to see it decoded' : 'Holds JSON: click to see it as a tree'] as [string, string]] : [])].map(([flag, meaning]) => (
+                                <span key={flag} className="flag" data-tip={meaning}>
+                                  {flag}
+                                </span>
+                              ))}
+                            </th>
+                            <td className="site">{row.site}</td>
+                            {engines.map((e) => cell(row, e))}
+                            <td className="act">
+                              <button
+                                type="button"
+                                className="delete"
+                                aria-label={`Delete ${row.name}`}
+                                data-tip="Delete this in every engine"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  act(row.remove)
+                                }}
+                              >
+                                ×
+                              </button>
+                            </td>
+                          </tr>
+                          {open === row.id && tree && (
+                            <tr className="detail">
+                              <td colSpan={engines.length + 3}>
+                                <JsonTree sides={tree.sides} kind={tree.kind} onEdit={tree.edit && ((path, value) => act(tree.edit!(path, value)))} />
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
