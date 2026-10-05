@@ -358,7 +358,11 @@ export class EngineHost {
     if (!this.canvas) for (const e of ENGINES) this.views.get(e)?.hide()
     const next = new Map(frames.map((f) => [f.id, f]))
     const before = this.canvas
-    for (const id of before?.keys() ?? []) if (!next.has(id)) this.dropView(canvasKey(id))
+    for (const id of before?.keys() ?? []) {
+      if (next.has(id)) continue
+      this.dropView(canvasKey(id))
+      this.frameRects.delete(id)
+    }
     this.canvas = next
     await Promise.all(
       frames.map(async (f) => {
@@ -369,7 +373,12 @@ export class EngineHost {
         // A new engine, or mobile mode on or off (a different browser ID): a new page.
         if (this.views.get(key)?.engine !== f.engine || (was && was.mobile !== f.mobile)) this.dropView(key)
         if (!this.urls.has(key)) this.urls.set(key, url)
-        const view = this.views.get(key) ?? this.makeView(key, f.engine)
+        let view = this.views.get(key)
+        if (!view) {
+          view = this.makeView(key, f.engine)
+          const rect = this.frameRects.get(f.id)
+          if (rect) void view.setRect(rect)
+        }
         try {
           await view.update({ ...this.settings!, url: this.urls.get(key) ?? url, engine: f.engine, viewport: f.viewport, mobile: this.mobileFor(f) })
         } catch (err) {
@@ -390,6 +399,7 @@ export class EngineHost {
   /** Where a canvas frame's page sits, and the canvas area it's cut off at. */
   async setFrameRect(id: string, rect: ViewRect): Promise<void> {
     const view = this.views.get(canvasKey(id))
+    this.frameRects.set(id, rect)
     if (!this.placed.has(id) || !view) {
       this.placed.add(id)
       log('frame', id, view ? 'first rect' : 'rect for a frame with no view', { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) })
@@ -407,6 +417,11 @@ export class EngineHost {
   }
 
   private hiddenFrames = new Set<string>()
+  /**
+   * Where each frame sits. The UI only says so when a frame moves, so a new page for a frame
+   * that's already there (another engine, or mobile mode) is placed from this.
+   */
+  private frameRects = new Map<string, ViewRect>()
   /** Frames that have been told where they sit (logged once each). */
   private placed = new Set<string>()
   /** The frame the user last picked: find-in-page searches it. */
