@@ -77,6 +77,13 @@ export async function visualCheck(win: BrowserWindow, dir: string, newWindow: ()
   await ui(`[...document.querySelectorAll('.canvas-bar button')].find((b) => b.textContent.trim() === 'Fit')?.click()`)
   await sleep(3000)
 
+  // Mobile mode on the Blink frame: laid out and drawn as on a tablet, inside its frame.
+  await ui(`document.querySelector('.frame[data-engine="chromium"] button.mobile')?.click()`)
+  await sleep(8000)
+  await shot('mobile-blink')
+  await ui(`document.querySelector('.frame[data-engine="chromium"] button.mobile')?.click()`)
+  await sleep(6000)
+
   // Focus mode: one frame fills the window; the others keep running, hidden.
   for (const engine of ['chromium', 'firefox', 'webkit']) {
     await ui(`document.querySelector('.frame[data-engine="${engine}"] button[aria-label="Focus frame"]')?.click()`)

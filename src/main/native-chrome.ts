@@ -139,6 +139,9 @@ export class NativeChrome implements PageView {
     log('blink open', opts.url.slice(0, 50), opts.viewport, { rect: this.rect && this.bounds(this.rect), scale: this.scale() })
     await this.blank
     await this.applyEmulation()
+    // Touch reaches the renderer a moment after it's switched on; a page made before that would
+    // find no touch support.
+    if (opts.mobile) await new Promise((r) => setTimeout(r, 250))
     if (!sameUrl || view.webContents.getURL() === 'about:blank') this.load(opts.url)
   }
 
@@ -264,21 +267,29 @@ export class NativeChrome implements PageView {
     const { width, height } = this.opts.viewport
     const scale = this.scale()
     const mobile = this.opts.mobile
-    const key = `${width}x${height}@${scale}${mobile ? ':' + mobile.kind : ''}`
+    // Mobile mode goes through the DevTools protocol when it's attached (it isn't while a test
+    // runner is): only that sets the device's screen density.
+    const devtools = !!mobile && wc.debugger.isAttached()
+    const key = `${width}x${height}@${scale}${mobile ? ':' + mobile.kind : ''}${devtools ? ':devtools' : ''}`
     if (key === this.lastScale) return
     this.lastScale = key
     log('blink scale', key)
-    // Mobile mode: the page is laid out as on a phone (its viewport tag is honoured) at the
-    // device's screen density.
-    wc.enableDeviceEmulation({ screenPosition: mobile ? 'mobile' : 'desktop', screenSize: { width, height }, viewPosition: { x: 0, y: 0 }, deviceScaleFactor: mobile ? mobileDensity(mobile.kind) : 0, viewSize: { width, height }, scale })
+    if (mobile && devtools) {
+      // As DevTools' device toolbar does: laid out as on a phone (the page's viewport tag is
+      // honoured), at the device's screen density, drawn scaled into the view as it is.
+      wc.disableDeviceEmulation()
+      void wc.debugger
+        .sendCommand('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: mobileDensity(mobile.kind), mobile: true, scale, screenWidth: width, screenHeight: height, dontSetVisibleSize: true })
+        .catch((err) => log('blink mobile metrics failed', String(err)))
+      return
+    }
+    wc.enableDeviceEmulation({ screenPosition: mobile ? 'mobile' : 'desktop', screenSize: { width, height }, viewPosition: { x: 0, y: 0 }, deviceScaleFactor: 0, viewSize: { width, height }, scale })
   }
 
   private async applyEmulation(): Promise<void> {
     const wc = this.view?.webContents
     if (!wc || !this.opts || !this.committed || wc.isDestroyed()) return
     const { colorScheme } = this.opts
-
-    this.applyScale()
 
     // Dark mode needs the DevTools protocol. Attaching it while a test runner is connected over
     // remote debugging crashes Electron, so it is skipped then.
@@ -289,10 +300,16 @@ export class NativeChrome implements PageView {
         // Attached elsewhere.
       }
     }
+    this.applyScale() // After attaching: mobile mode's size and density need the protocol.
     if (wc.debugger.isAttached() && this.opts.mobile) {
       // Mobile mode: touch input, with the mouse acting as a finger.
-      void wc.debugger.sendCommand('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 }).catch(() => {})
-      void wc.debugger.sendCommand('Emulation.setEmitTouchEventsForMouse', { enabled: true, configuration: 'mobile' }).catch(() => {})
+      await Promise.race([
+        Promise.all([
+          wc.debugger.sendCommand('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 }).catch(() => {}),
+          wc.debugger.sendCommand('Emulation.setEmitTouchEventsForMouse', { enabled: true, configuration: 'mobile' }).catch(() => {})
+        ]),
+        new Promise((r) => setTimeout(r, 1000))
+      ])
     }
     if (wc.debugger.isAttached()) {
       await Promise.race([
