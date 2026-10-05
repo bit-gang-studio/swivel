@@ -23,6 +23,8 @@ const MIN_ZOOM = 0.1
 const MAX_ZOOM = 1
 const MIN_SIZE = 240
 const MAX_SIZE = 3840
+/** Where a Responsive frame starts, before it's dragged or typed to another size. */
+const RESPONSIVE_START: Viewport = { width: 1280, height: 800 }
 const clampZoom = (z: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z))
 const clampSize = (n: number) => Math.min(MAX_SIZE, Math.max(MIN_SIZE, Math.round(n)))
 
@@ -176,14 +178,17 @@ export const Canvas = forwardRef<CanvasHandle, { url: string; dark: boolean; onS
   }
 
   async function addFrame(at: { x: number; y: number }) {
-    const items: { id?: string; label: string; group?: boolean }[] = []
+    // Responsive first: a frame tied to no device, to drag or type to any size, in any engine.
+    const items: { id?: string; label: string; group?: boolean }[] = [{ label: 'Responsive (any size)', group: true }]
+    for (const e of ENGINES) items.push({ id: `responsive:${e}`, label: `${engineWithBrowser(e)}    drag its edges or type a size` })
     for (const group of ['Phones', 'Tablets', 'Computers'] as const) {
       if (items.length) items.push({ label: '-' })
       items.push({ label: group, group: true })
       DEVICES.forEach((d, i) => d.group === group && items.push({ id: String(i), label: `${d.name}    ${d.viewport.width} × ${d.viewport.height}  ·  ${engineLabel(d.engine)}` }))
     }
     const picked = await window.swivel.pick(items, at)
-    const device = picked === null ? undefined : DEVICES[Number(picked)]
+    if (picked === null) return
+    const device = picked.startsWith('responsive:') ? { engine: picked.slice('responsive:'.length) as EngineId, viewport: RESPONSIVE_START } : DEVICES[Number(picked)]
     if (!device) return
     const right = Math.max(0, ...frames.map((f) => f.x + f.viewport.width + GAP))
     const frame = { id: newId(), engine: device.engine, viewport: device.viewport, x: right, y: Math.min(0, ...frames.map((f) => f.y)) }
