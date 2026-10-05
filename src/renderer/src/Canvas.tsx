@@ -23,8 +23,8 @@ const MIN_ZOOM = 0.1
 const MAX_ZOOM = 1
 const MIN_SIZE = 240
 const MAX_SIZE = 3840
-/** Where a Responsive frame starts, before it's dragged or typed to another size. */
-const RESPONSIVE_START: Viewport = { width: 1280, height: 800 }
+/** The size of a frame added by engine alone; drag or type it to any other. */
+const NEW_FRAME: Viewport = { width: 1280, height: 800 }
 const clampZoom = (z: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z))
 const clampSize = (n: number) => Math.min(MAX_SIZE, Math.max(MIN_SIZE, Math.round(n)))
 
@@ -59,7 +59,7 @@ function fit(frames: Placed[], area: { width: number; height: number }): View {
 export interface CanvasHandle {
   /** Open the device menu at a point in the window, and add what's picked. */
   addFrame(at: { x: number; y: number }): void
-  /** A menu command: 'fit', 'zoom-100' or 'focus'. */
+  /** A menu command: 'fit', 'zoom-100', 'focus' or 'duplicate'. */
   command(c: string): void
 }
 
@@ -178,9 +178,10 @@ export const Canvas = forwardRef<CanvasHandle, { url: string; dark: boolean; onS
   }
 
   async function addFrame(at: { x: number; y: number }) {
-    // Responsive first: a frame tied to no device, to drag or type to any size, in any engine.
-    const items: { id?: string; label: string; group?: boolean }[] = [{ label: 'Responsive (any size)', group: true }]
-    for (const e of ENGINES) items.push({ id: `responsive:${e}`, label: `${engineWithBrowser(e)}    drag its edges or type a size` })
+    // A frame is an engine and a size. First: this page in another engine, at a desktop size.
+    // Then sizes, named by device as shorthand, each in the engine that device's browser uses.
+    const items: { id?: string; label: string; group?: boolean }[] = [{ label: 'New frame in…', group: true }]
+    for (const e of ENGINES) items.push({ id: `engine:${e}`, label: `${engineWithBrowser(e)}    ${NEW_FRAME.width} × ${NEW_FRAME.height}` })
     for (const group of ['Phones', 'Tablets', 'Computers'] as const) {
       if (items.length) items.push({ label: '-' })
       items.push({ label: group, group: true })
@@ -188,16 +189,26 @@ export const Canvas = forwardRef<CanvasHandle, { url: string; dark: boolean; onS
     }
     const picked = await window.swivel.pick(items, at)
     if (picked === null) return
-    const device = picked.startsWith('responsive:') ? { engine: picked.slice('responsive:'.length) as EngineId, viewport: RESPONSIVE_START } : DEVICES[Number(picked)]
-    if (!device) return
+    const device = picked.startsWith('engine:') ? { engine: picked.slice('engine:'.length) as EngineId, viewport: NEW_FRAME } : DEVICES[Number(picked)]
+    if (device) append(device.engine, device.viewport)
+  }
+
+  /** Add a frame at the end of the row, select it, and bring every frame into view. */
+  function append(engine: EngineId, viewport: Viewport) {
     const right = Math.max(0, ...frames.map((f) => f.x + f.viewport.width + GAP))
-    const frame = { id: newId(), engine: device.engine, viewport: device.viewport, x: right, y: Math.min(0, ...frames.map((f) => f.y)) }
+    const frame = { id: newId(), engine, viewport, x: right, y: Math.min(0, ...frames.map((f) => f.y)) }
     const next = [...frames, frame]
     setFrames(next)
     setSetName(null)
     setSelected(frame.id)
     setFocused(null)
     if (areaBox) setView(fit(next, areaBox))
+  }
+
+  /** The same page again, to change one thing on: its engine or its size. */
+  function duplicate(id = selected ?? focused ?? undefined) {
+    const source = frames.find((f) => f.id === id)
+    if (source) append(source.engine, source.viewport)
   }
 
   function zoomTo(zoom: number) {
@@ -234,6 +245,7 @@ export const Canvas = forwardRef<CanvasHandle, { url: string; dark: boolean; onS
         setView(fit(frames, areaBox))
       } else if (c === 'zoom-100') zoomTo(1)
       else if (c === 'focus') toggleFocus()
+      else if (c === 'duplicate') duplicate()
     }
   }))
 
@@ -305,6 +317,7 @@ export const Canvas = forwardRef<CanvasHandle, { url: string; dark: boolean; onS
               onSelect={() => setSelected(f.id)}
               onChange={(c) => change(f.id, c)}
               onFocus={() => toggleFocus(f.id)}
+              onDuplicate={() => duplicate(f.id)}
               onClose={() => {
                 setFrames(frames.filter((o) => o.id !== f.id))
                 setSetName(null)
@@ -409,12 +422,13 @@ interface FrameProps {
   onSelect: () => void
   onChange: (change: Partial<Placed>) => void
   onFocus: () => void
+  onDuplicate: () => void
   onClose: () => void
 }
 
 type Drag = { x: number; y: number; fx: number; fy: number; vw: number; vh: number; mode: 'move' | 'e' | 's' | 'se' }
 
-function Frame({ frame, zoom, left, top, clip, selected, filling, onSelect, onChange, onFocus, onClose }: FrameProps) {
+function Frame({ frame, zoom, left, top, clip, selected, filling, onSelect, onChange, onFocus, onDuplicate, onClose }: FrameProps) {
   const body = useRef<HTMLDivElement>(null)
   const [snapshot, setSnapshot] = useState<string | null>(null)
   /** The size being dragged to; applied on release. */
@@ -506,6 +520,9 @@ function Frame({ frame, zoom, left, top, clip, selected, filling, onSelect, onCh
         <span className="spacer" />
         <button type="button" aria-label="Rotate" data-tip="Rotate: swap width and height" onClick={() => onChange({ viewport: { width: frame.viewport.height, height: frame.viewport.width } })}>
           <Icon d={ICONS.rotate} size={13} />
+        </button>
+        <button type="button" aria-label="Duplicate" data-tip="Duplicate: the same frame again, to change its engine or size (Cmd/Ctrl+D)" onClick={onDuplicate}>
+          <Icon d={ICONS.duplicate} size={13} />
         </button>
         <button type="button" aria-label="Focus frame" data-tip={filling ? 'Back to the canvas (Cmd/Ctrl+Enter)' : 'Show this frame alone, filling the window like a normal browser (double-click the header, or Cmd/Ctrl+Enter)'} onClick={onFocus}>
           <Icon d={ICONS.focus} size={13} />

@@ -20,6 +20,7 @@ export function installMenu(newWindow: () => void): void {
       submenu: [
         { label: 'New Window', accelerator: 'CmdOrCtrl+N', click: () => newWindow() },
         { label: 'Add Frame…', accelerator: 'CmdOrCtrl+T', click: send('add-frame') },
+        { label: 'Duplicate Frame', accelerator: 'CmdOrCtrl+D', click: send('duplicate') },
         { type: 'separator' },
         { role: mac ? 'close' : 'quit' }
       ]

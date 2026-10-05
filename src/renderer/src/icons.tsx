@@ -17,6 +17,7 @@ export const ICONS = {
   console: 'M4 17l6-5-6-5M12 19h8',
   trash: 'M4 7h16M10 11v6M14 11v6M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-12M9 7V4h6v3',
   rotate: 'M4 9V5h4M4 5l4 4M9 20h10a1 1 0 0 0 1-1V9a1 1 0 0 0-1-1H9a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1z',
+  duplicate: 'M9 9h11v11H9zM5 15H4V4h11v1',
   focus: 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5',
   close: 'M6 6l12 12M18 6L6 18',
   grid: 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z'

@@ -161,5 +161,5 @@ button, input, select { font: inherit; color: inherit; }
 /* One frame alone, filling the window like a normal browser: its size is the window's. */
 .frame.filling header { cursor: default; padding: 0 6px; box-sizing: border-box; }
 .frame.filling header button[aria-label] { visibility: visible; }
-.frame.filling .size, .frame.filling button[aria-label='Rotate'], .frame.filling .frame-edge, .frame.filling .frame-handle { display: none; }
+.frame.filling .size, .frame.filling button[aria-label='Rotate'], .frame.filling button[aria-label='Duplicate'], .frame.filling .frame-edge, .frame.filling .frame-handle { display: none; }
 .frame.filling .frame-body { box-shadow: none; }
