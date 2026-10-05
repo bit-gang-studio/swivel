@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import type { ConsoleEntry } from '../../shared/types'
-import { engineLabel } from './engines'
 import { Canvas, type CanvasHandle } from './Canvas'
 import { FindBar } from './FindBar'
 import { AuthBar } from './AuthBar'
 import { StoragePanel } from './StoragePanel'
+import { BottomPanel } from './BottomPanel'
+import { ConsolePanel, type LogEntry } from './ConsolePanel'
 import { Icon, ICONS } from './icons'
 
 const mac = window.swivel.platform === 'darwin'
@@ -51,7 +51,7 @@ export function App() {
   }
   const canvas = useRef<CanvasHandle>(null)
   const addButton = useRef<HTMLButtonElement>(null)
-  const [logs, setLogs] = useState<ConsoleEntry[]>([])
+  const [logs, setLogs] = useState<LogEntry[]>([])
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const consoleOpenRef = useRef(consoleOpen)
@@ -62,7 +62,7 @@ export function App() {
   useEffect(() => {
     const offs = [
       window.swivel.on('console', (entry) => {
-        setLogs((l) => [...l.slice(-199), entry])
+        setLogs((l) => [...l.slice(-499), { ...entry, at: Date.now() }])
         if (entry.type === 'error' && !consoleOpenRef.current) setUnseenErrors((n) => n + 1)
       }),
       window.swivel.on('url', (u) => {
@@ -275,22 +275,21 @@ export function App() {
         )}
       </main>
 
-      {storageOpen && <StoragePanel />}
-      {consoleOpen && (
-        <section className="console" aria-label="Console">
-          <h2>Console</h2>
-          {logs.length ? (
-            <ul>
-              {logs.map((entry, i) => (
-                <li key={i} className={entry.type}>
-                  <span className="tag">{engineLabel(entry.engine)}</span> {entry.text}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="empty">No messages.</p>
-          )}
-        </section>
+      {(consoleOpen || storageOpen) && (
+        <BottomPanel
+          tab={storageOpen ? 'storage' : 'console'}
+          errors={unseenErrors}
+          onTab={(tab) => {
+            if ((tab === 'console') !== consoleOpen) toggleConsole()
+            setStorageOpen(tab === 'storage')
+          }}
+          onClose={() => {
+            if (consoleOpen) toggleConsole()
+            setStorageOpen(false)
+          }}
+        >
+          {storageOpen ? <StoragePanel /> : <ConsolePanel logs={logs} onClear={() => setLogs([])} />}
+        </BottomPanel>
       )}
     </div>
   )

@@ -1,21 +1,41 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import type { EngineId } from '../../shared/types'
-import type { StorageAction, StorageSnapshot, StoredCookie, StoredItem } from '../../shared/storage'
+import type { StorageAction, StorageSnapshot } from '../../shared/storage'
 import { engineLabel } from './engines'
+
+type Section = 'cookies' | 'local' | 'session' | 'databases'
 
 const size = (bytes: number) => (bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`)
 
 /** A value differs between engines: some have it and some don't, or they hold different values. */
 const differs = (values: Partial<Record<EngineId, string>>, engines: EngineId[]) => new Set(engines.map((e) => values[e] ?? '\u0000')).size > 1
 
+/** A row of any section, in one shape. */
+interface Row {
+  id: string
+  name: string
+  site: string
+  values: Partial<Record<EngineId, string>>
+  /** Small labels beside the name, with what they mean. */
+  flags: [string, string][]
+  /** The engine that set it (cookies): the others hold a copy. */
+  from?: EngineId
+  save: (value: string) => StorageAction
+  remove: StorageAction
+}
+
 /**
- * What this window has stored, side by side per engine: cookies, local storage and session
- * storage, with database and cache sizes. Rows that differ between engines are marked. A value
- * can be edited or deleted in every engine at once.
+ * What this window has stored, side by side per engine. Pick a kind on the left; rows that differ
+ * between engines are marked, and can be shown alone. Click a row to read its values in full;
+ * click a value to edit it in every engine.
  */
 export function StoragePanel() {
   const [data, setData] = useState<StorageSnapshot | null>(null)
-  /** The value being edited: which row, and its text. */
+  const [section, setSection] = useState<Section>('cookies')
+  const [filter, setFilter] = useState('')
+  const [onlyDifferent, setOnlyDifferent] = useState(false)
+  const [open, setOpen] = useState<string | null>(null)
+  /** The value being edited: which row and engine, and its text. */
   const [editing, setEditing] = useState<{ id: string; text: string } | null>(null)
 
   const refresh = () => void window.swivel.storage().then((s) => s && setData(s))
@@ -27,24 +47,65 @@ export function StoragePanel() {
   }, [])
   const act = (action: StorageAction) => void window.swivel.storageAction(action).then(() => setTimeout(refresh, 150))
 
-  if (!data) return <section className="storage" aria-label="Storage" />
+  if (!data) return <div className="storage" />
   const { engines } = data
-  const locals = data.items.filter((i) => i.area === 'local')
-  const sessions = data.items.filter((i) => i.area === 'session')
 
-  /** One engine's value in a row: click to edit it everywhere. */
-  const cell = (id: string, engine: EngineId, value: string | undefined, save: (text: string) => void, copied = false) => {
-    if (editing?.id === `${id}\n${engine}`)
+  const cookieRows: Row[] = data.cookies.map((c) => ({
+    id: c.key,
+    name: c.name,
+    site: c.domain.replace(/^\./, ''),
+    values: c.values,
+    flags: [
+      ...(c.httpOnly ? [['HttpOnly', "The page's own scripts can't read this cookie"] as [string, string]] : []),
+      ...(c.secure ? [['Secure', 'Only sent over HTTPS'] as [string, string]] : []),
+      ...(c.expires ? [] : [['Session', 'Gone when the window closes: it has no expiry date'] as [string, string]])
+    ],
+    from: c.from,
+    save: (value) => ({ type: 'set-cookie', key: c.key, value }),
+    remove: { type: 'delete-cookie', key: c.key }
+  }))
+  const itemRows = (area: 'local' | 'session'): Row[] =>
+    data.items
+      .filter((i) => i.area === area)
+      .map((i) => ({
+        id: `${i.area}\n${i.origin}\n${i.key}`,
+        name: i.key,
+        site: i.origin.replace(/^https?:\/\//, ''),
+        values: i.values,
+        flags: [],
+        save: (value) => ({ type: 'set-item', origin: i.origin, area: i.area, key: i.key, value }),
+        remove: { type: 'delete-item', origin: i.origin, area: i.area, key: i.key }
+      }))
+  const rows: Record<Exclude<Section, 'databases'>, Row[]> = { cookies: cookieRows, local: itemRows('local'), session: itemRows('session') }
+  const different = (list: Row[]) => list.filter((r) => differs(r.values, engines)).length
+
+  const nav: [Section, string, number | null, number][] = [
+    ['cookies', 'Cookies', rows.cookies.length, different(rows.cookies)],
+    ['local', 'Local storage', rows.local.length, different(rows.local)],
+    ['session', 'Session storage', rows.session.length, different(rows.session)],
+    ['databases', 'Databases and caches', null, 0]
+  ]
+
+  const needle = filter.trim().toLowerCase()
+  const list = section === 'databases' ? [] : rows[section]
+  const shown = list.filter((r) => (!onlyDifferent || differs(r.values, engines)) && (!needle || r.name.toLowerCase().includes(needle) || r.site.toLowerCase().includes(needle)))
+
+  /** One engine's value: click to edit it in every engine. */
+  const cell = (row: Row, engine: EngineId): ReactNode => {
+    const value = row.values[engine]
+    const id = `${row.id}\n${engine}`
+    if (editing?.id === id)
       return (
         <td key={engine}>
           <input
             autoFocus
             aria-label="Value"
             value={editing.text}
-            onChange={(e) => setEditing({ id: editing.id, text: e.target.value })}
+            onChange={(e) => setEditing({ id, text: e.target.value })}
+            onClick={(e) => e.stopPropagation()}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
-                save(editing.text)
+                act(row.save(editing.text))
                 setEditing(null)
               } else if (e.key === 'Escape') setEditing(null)
             }}
@@ -57,12 +118,20 @@ export function StoragePanel() {
         {value === undefined ? (
           'not set'
         ) : (
-          <button type="button" className="value" data-tip="Click to edit this value in every engine" onClick={() => setEditing({ id: `${id}\n${engine}`, text: value })}>
+          <button
+            type="button"
+            className="value"
+            data-tip="Click to edit this value in every engine"
+            onClick={(e) => {
+              e.stopPropagation()
+              setEditing({ id, text: value })
+            }}
+          >
             {value || '(empty)'}
           </button>
         )}
-        {copied && (
-          <span className="copied" data-tip="This engine didn't set this cookie itself: it was copied here by sign-in sharing">
+        {value !== undefined && row.from && row.from !== engine && (
+          <span className="copied" data-tip={`${engineLabel(engine)} didn't set this cookie itself: it was copied from ${engineLabel(row.from)} by sign-in sharing`}>
             copied
           </span>
         )}
@@ -70,100 +139,37 @@ export function StoragePanel() {
     )
   }
 
-  const cookieRow = (c: StoredCookie) => (
-    <tr key={c.key} className={differs(c.values, engines) ? 'differs' : undefined}>
-      <th scope="row">
-        {c.name}
-        {c.httpOnly && (
-          <span className="flag" data-tip="HttpOnly: the page's own scripts can't read this cookie">
-            HttpOnly
-          </span>
-        )}
-      </th>
-      <td className="site">{c.domain.replace(/^\./, '')}</td>
-      {engines.map((e) => cell(c.key, e, c.values[e], (value) => act({ type: 'set-cookie', key: c.key, value }), !!c.from && c.from !== e && c.values[e] !== undefined))}
-      <td>
-        <button type="button" className="delete" aria-label={`Delete cookie ${c.name}`} data-tip="Delete this cookie in every engine" onClick={() => act({ type: 'delete-cookie', key: c.key })}>
-          ×
-        </button>
-      </td>
-    </tr>
-  )
-
-  const itemRow = (i: StoredItem) => {
-    const id = `${i.area}\n${i.origin}\n${i.key}`
-    return (
-      <tr key={id} className={differs(i.values, engines) ? 'differs' : undefined}>
-        <th scope="row">{i.key}</th>
-        <td className="site">{i.origin.replace(/^https?:\/\//, '')}</td>
-        {engines.map((e) => cell(id, e, i.values[e], (value) => act({ type: 'set-item', origin: i.origin, area: i.area, key: i.key, value })))}
-        <td>
-          <button type="button" className="delete" aria-label={`Delete ${i.key}`} data-tip="Delete this item in every engine" onClick={() => act({ type: 'delete-item', origin: i.origin, area: i.area, key: i.key })}>
-            ×
-          </button>
-        </td>
-      </tr>
-    )
-  }
-
-  const table = (title: string, rows: React.ReactNode[], empty: string, note?: string) => (
-    <>
-      <h3>
-        {title} <span className="count">{rows.length}</span>
-        {note && <span className="note">{note}</span>}
-      </h3>
-      {rows.length ? (
-        <table>
-          <thead>
-            <tr>
-              <th scope="col">Name</th>
-              <th scope="col">Site</th>
-              {engines.map((e) => (
-                <th key={e} scope="col">
-                  {engineLabel(e)}
-                </th>
-              ))}
-              <th />
-            </tr>
-          </thead>
-          <tbody>{rows}</tbody>
-        </table>
-      ) : (
-        <p className="empty">{empty}</p>
-      )}
-    </>
-  )
-
   return (
-    <section className="storage" aria-label="Storage">
-      <header>
-        <h2>Storage</h2>
-        <label data-tip="On: sign in on one frame and every engine is signed in (cookies are copied between engines). Off: each engine keeps its own cookies, to test how each really handles them.">
+    <div className="storage">
+      <nav aria-label="Kinds of storage">
+        {nav.map(([id, label, count, diff]) => (
+          <button key={id} type="button" aria-current={section === id} onClick={() => setSection(id)}>
+            <span className="label">{label}</span>
+            {diff > 0 && (
+              <span className="diff" data-tip={`${diff} ${diff === 1 ? 'differs' : 'differ'} between engines`}>
+                {diff}
+              </span>
+            )}
+            {count !== null && <span className="count">{count}</span>}
+          </button>
+        ))}
+        <label className="share" data-tip="On: sign in on one frame and every engine is signed in (cookies are copied between engines). Off: each engine keeps its own cookies, to test how each really handles them.">
           <input type="checkbox" checked={data.sharing} onChange={(e) => act({ type: 'share', on: e.target.checked })} />
           Share sign-in across engines
         </label>
-        <span className="spacer" />
-        <button type="button" data-tip="Delete every cookie in this window, in every engine" disabled={!data.cookies.length} onClick={() => act({ type: 'clear-cookies' })}>
-          Clear cookies
-        </button>
-        <button type="button" data-tip="Clear local and session storage on the open pages, in every engine" disabled={!data.items.length} onClick={() => act({ type: 'clear-items' })}>
-          Clear storage
-        </button>
-      </header>
-      {!engines.length && <p className="empty">Open a page to see what it stores.</p>}
-      {engines.length > 0 && (
-        <>
-          {table('Cookies', data.cookies.map(cookieRow), 'No cookies.')}
-          {table('Local storage', locals.map(itemRow), 'Nothing in local storage on the open pages.')}
-          {table('Session storage', sessions.map(itemRow), 'Nothing in session storage on the open pages.', "Each frame has its own; this shows each engine's first frame.")}
-          <h3>Databases and caches</h3>
+      </nav>
+
+      <div className="storage-main">
+        {!engines.length ? (
+          <p className="empty">Open a page to see what it stores.</p>
+        ) : section === 'databases' ? (
           <table>
             <thead>
               <tr>
                 <th scope="col">Engine</th>
-                <th scope="col">Stored by this site</th>
-                <th scope="col">IndexedDB</th>
-                <th scope="col">Cache storage</th>
+                <th scope="col">Stored by the open site</th>
+                <th scope="col">IndexedDB databases</th>
+                <th scope="col">Caches</th>
               </tr>
             </thead>
             <tbody>
@@ -173,15 +179,91 @@ export function StoragePanel() {
                   <tr key={e}>
                     <th scope="row">{engineLabel(e)}</th>
                     <td>{u ? size(u.bytes) : 'unknown'}</td>
-                    <td>{u?.databases.length ? u.databases.join(', ') : 'none'}</td>
-                    <td>{u?.caches.length ? u.caches.join(', ') : 'none'}</td>
+                    <td className="wrap">{u?.databases.length ? u.databases.join(', ') : 'none'}</td>
+                    <td className="wrap">{u?.caches.length ? u.caches.join(', ') : 'none'}</td>
                   </tr>
                 )
               })}
             </tbody>
           </table>
-        </>
-      )}
-    </section>
+        ) : (
+          <>
+            <div className="panel-tools">
+              <input type="search" aria-label="Filter by name or site" placeholder="Filter by name or site" value={filter} onChange={(e) => setFilter(e.target.value)} />
+              <label data-tip="Show only rows whose value isn't the same in every engine">
+                <input type="checkbox" checked={onlyDifferent} onChange={(e) => setOnlyDifferent(e.target.checked)} />
+                Differences only
+              </label>
+              <span className="spacer" />
+              <span className="muted">{shown.length === list.length ? `${list.length} items` : `${shown.length} of ${list.length}`}</span>
+              <button
+                type="button"
+                className="plain"
+                data-tip={section === 'cookies' ? 'Delete every cookie in this window, in every engine' : 'Clear local and session storage on the open pages, in every engine'}
+                disabled={!list.length}
+                onClick={() => act({ type: section === 'cookies' ? 'clear-cookies' : 'clear-items' })}
+              >
+                {section === 'cookies' ? 'Clear cookies' : 'Clear storage'}
+              </button>
+            </div>
+            {section === 'session' && <p className="note">Each frame has its own session storage; this shows each engine's first frame.</p>}
+            {shown.length ? (
+              <div className="storage-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th scope="col" className="name">
+                        Name
+                      </th>
+                      <th scope="col" className="site">
+                        Site
+                      </th>
+                      {engines.map((e) => (
+                        <th key={e} scope="col">
+                          {engineLabel(e)}
+                        </th>
+                      ))}
+                      <th className="act" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {shown.map((row) => (
+                      <tr key={row.id} className={[differs(row.values, engines) && 'differs', open === row.id && 'open'].filter(Boolean).join(' ') || undefined} onClick={() => setOpen(open === row.id ? null : row.id)}>
+                        <th scope="row" data-tip={open === row.id ? 'Click to shorten the values' : 'Click to show the values in full'}>
+                          {row.name}
+                          {row.flags.map(([flag, meaning]) => (
+                            <span key={flag} className="flag" data-tip={meaning}>
+                              {flag}
+                            </span>
+                          ))}
+                        </th>
+                        <td className="site">{row.site}</td>
+                        {engines.map((e) => cell(row, e))}
+                        <td className="act">
+                          <button
+                            type="button"
+                            className="delete"
+                            aria-label={`Delete ${row.name}`}
+                            data-tip="Delete this in every engine"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              act(row.remove)
+                            }}
+                          >
+                            ×
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="empty">{list.length ? 'Nothing matches.' : section === 'cookies' ? 'No cookies.' : 'Nothing stored here by the open pages.'}</p>
+            )}
+          </>
+        )}
+      </div>
+    </div>
   )
 }
