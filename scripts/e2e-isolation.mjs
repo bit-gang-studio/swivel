@@ -17,7 +17,7 @@ const base = `http://127.0.0.1:${server.address().port}`
 // Console lines are tagged by engine name. The Browsers set has one frame per engine.
 const ENGINES = ['Blink', 'Gecko', 'WebKit']
 
-/** Which engines logged a console line containing text, within a time limit. */
+/** Which engines logged a console line containing text (or matching a pattern), within a time limit. */
 async function visit(win, url, text, ms = 30_000) {
   await win.getByLabel('Address').fill(url)
   await win.getByLabel('Address').press('Enter')
@@ -31,7 +31,7 @@ async function visit(win, url, text, ms = 30_000) {
   const end = Date.now() + ms
   while (Date.now() < end && ENGINES.some((e) => !seen[e])) {
     for (const line of (await win.locator('.console').innerText()).split('\n'))
-      for (const e of ENGINES) if (line.startsWith(e) && line.includes(text)) seen[e] = true
+      for (const e of ENGINES) if (line.startsWith(e) && (text instanceof RegExp ? text.test(line) : line.includes(text))) seen[e] = true
     await win.waitForTimeout(250)
   }
   return seen
@@ -70,7 +70,8 @@ await withApp(async ({ app, win }) => {
 
   // Deleting a cookie removes it from every engine.
   await act({ type: 'delete-cookie', key: only.key })
-  check('a deleted cookie is still sent by an engine', await visit(win, `${base}/deleted`, 'only=blink', 6000), false)
+  check('a deleted cookie is still sent by an engine', await visit(win, `${base}/deleted`, /cookie\/deleted:.*only=blink/, 6000), false)
+  check('the page loads after the delete', await visit(win, `${base}/deleted-b`, 'cookie/deleted-b:'), true)
 
   // Sharing off: a cookie set in Blink stays in Blink. Back on: the others get it.
   await act({ type: 'share', on: false })
@@ -100,7 +101,7 @@ await withApp(async ({ app, win }) => {
   await win.getByRole('button', { name: 'Clear data' }).click()
   await win.waitForTimeout(3000)
   check('window 1 after clear loads', await visit(win, `${base}/cleared`, 'cookie/cleared:'), true)
-  check('window 1 after clear still has cookie', await visit(win, `${base}/cleared-b`, 'cookie/cleared-b:swivel=kept', 8000), false)
+  check('window 1 after clear still has cookie', await visit(win, `${base}/cleared-b`, /cookie\/cleared-b:.*(swivel=kept|solo=1)/, 8000), false)
   return failed ? 1 : 0
 }, { exit: false }).then((code) => {
   server.close()
