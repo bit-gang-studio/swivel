@@ -214,8 +214,10 @@ export class StreamedView implements PageView {
           debug(this.engine, 'popup', popup.url())
           await popup.waitForURL(/.*/, { timeout: 5000 }).catch(() => {})
           const url = popup.url()
+          // A popup window (opened with a size, as sign-in windows are) isn't a page to go to.
+          const sized = await within(popup.evaluate(() => !self.menubar.visible), 2000, false)
           void popup.close().catch(() => {})
-          if (url && url !== 'about:blank') void this.navigate(url)
+          if (url && url !== 'about:blank' && !sized) void this.navigate(url)
         })
       }
       context.on('page', this.onPopup)

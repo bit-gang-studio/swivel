@@ -32,6 +32,9 @@ export class NativeChrome implements PageView {
   /** The sign-in this view last used per site, to tell a refused one from a first request. */
   private triedAuth = new Map<string, Credentials>()
 
+  /** Popups this view's page opened: they close with it. */
+  private popups = new Set<BrowserWindow>()
+
   constructor(win: BrowserWindow, emit: Emit, partition: string, ask: Asker) {
     this.partition = partition
     this.ask = ask
@@ -88,9 +91,48 @@ export class NativeChrome implements PageView {
       void this.ask.trust(new URL(url).host, error).then(callback)
     })
     wc.on('found-in-page', (_e, r) => this.emit('find', { matches: r.matches, active: r.activeMatchOrdinal }))
-    wc.setWindowOpenHandler(({ url }) => {
+    // A popup (window.open with a size, as "Sign in with Google" does) is a small window of its
+    // own, on this window's data, that can talk to the page that opened it. A link to a new tab
+    // loads here instead.
+    wc.setWindowOpenHandler(({ url, disposition }) => {
+      if (disposition === 'new-window')
+        return {
+          action: 'allow',
+          overrideBrowserWindowOptions: {
+            parent: this.win,
+            show: false,
+            autoHideMenuBar: true,
+            minWidth: 320,
+            minHeight: 240,
+            webPreferences: { partition: this.partition, sandbox: true, contextIsolation: true, nodeIntegration: false }
+          }
+        }
       void wc.loadURL(url)
       return { action: 'deny' }
+    })
+    wc.on('did-create-window', (popup) => {
+      this.popups.add(popup)
+      const page = popup.webContents
+      page.setUserAgent(wc.getUserAgent())
+      // No address bar: the title says which site the window is on.
+      const title = () => {
+        if (popup.isDestroyed()) return
+        const host = URL.canParse(page.getURL()) ? new URL(page.getURL()).host : ''
+        popup.setTitle([host, page.getTitle()].filter(Boolean).join(' · ') || 'Popup')
+      }
+      popup.on('page-title-updated', (e) => (e.preventDefault(), title()))
+      page.on('did-navigate', title)
+      // Anything it opens loads in it.
+      page.setWindowOpenHandler(({ url }) => {
+        void page.loadURL(url)
+        return { action: 'deny' }
+      })
+      popup.on('closed', () => {
+        this.popups.delete(popup)
+        this.ask.popupClosed('chromium')
+      })
+      if (process.env.SWIVEL_HIDDEN) popup.showInactive()
+      else popup.show()
     })
     view.setVisible(false) // Until it's placed.
     this.win.contentView.addChildView(view)
@@ -351,6 +393,7 @@ export class NativeChrome implements PageView {
 
   destroy(): void {
     if (!this.view) return
+    for (const popup of this.popups) if (!popup.isDestroyed()) popup.destroy()
     this.win.contentView.removeChildView(this.view)
     this.view.webContents.close()
     this.view = undefined

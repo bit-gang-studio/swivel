@@ -116,6 +116,8 @@ export class EngineHost {
   private newJar(): CookieJar {
     const jar = new CookieJar()
     const blink = session.fromPartition(`swivel-${this.storageId}`)
+    // Plain Chrome's browser ID for everything in the window, popups included.
+    blink.setUserAgent(blink.getUserAgent().replace(/\s(?:Electron|swivel)\/\S+/gi, ''))
     void jar.attach('chromium', electronStore(blink))
     // Blink's downloads: saved like the other engines', without Electron's own save dialog.
     blink.on('will-download', (event, item) => {
@@ -211,6 +213,14 @@ export class EngineHost {
       this.downloads.set(path, download)
       this.reportDownload(download)
       return path
+    },
+    // A sign-in popup usually leaves new cookies. Once they've been copied to the other engines,
+    // their frames reload to show the signed-in page (the popup's own engine was told by it).
+    popupClosed: (engine) => {
+      if (!this.jar.sharing) return
+      void this.jar.settle().then(() => {
+        for (const view of this.views.values()) if (view.engine !== engine) void view.history('reload')
+      })
     },
     downloaded: (path, ok) => {
       const download = this.downloads.get(path)

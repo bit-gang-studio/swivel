@@ -24,6 +24,8 @@ export interface Asker {
    * already saving the same file (a link opened in every frame starts it in each).
    */
   download(name: string, engine: EngineId): string | null
+  /** A popup an engine's page opened (a sign-in window, say) has closed. */
+  popupClosed(engine: EngineId): void
   /** A download to that path ended. */
   downloaded(path: string, ok: boolean): void
 }

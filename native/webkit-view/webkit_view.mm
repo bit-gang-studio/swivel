@@ -191,9 +191,11 @@ static char kDownloadRequest;
 - (void)download:(WKDownload*)download didFailWithError:(NSError*)e resumeData:(NSData*)data {
   [self downloadEnded:download ok:NO];
 }
-// Links that open a new window load in place instead.
+// Links that open a new window load in place instead. A popup window (opened with a size, as
+// sign-in windows are) isn't a page to go to: it isn't shown.
 - (WKWebView*)webView:(WKWebView*)w createWebViewWithConfiguration:(WKWebViewConfiguration*)c
     forNavigationAction:(WKNavigationAction*)action windowFeatures:(WKWindowFeatures*)f {
+  if (f.width || f.height) return nil;
   if (action.request.URL) [w loadRequest:action.request];
   return nil;
 }
