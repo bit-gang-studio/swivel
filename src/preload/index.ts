@@ -39,6 +39,8 @@ const api = {
   selectFrame: (id: string | undefined): void => ipcRenderer.send('swivel:frame-select', id),
   /** A native menu at x, y (window pixels): resolves with the picked item's id, or null. Group rows are headings. */
   pick: (items: { id?: string; label: string; group?: boolean }[], at: { x: number; y: number }): Promise<string | null> => ipcRenderer.invoke('swivel:pick', items, at),
+  /** Show a downloaded file in its folder. */
+  showDownload: (id: number): void => ipcRenderer.send('swivel:show-download', id),
   /** Answer an 'auth' question: a username and password, or null to cancel. */
   answerAuth: (id: number, credentials: Credentials | null): void => ipcRenderer.send('swivel:auth-answer', id, credentials),
   setColorScheme: (scheme: 'light' | 'dark'): Promise<void> => ipcRenderer.invoke('swivel:color-scheme', scheme),

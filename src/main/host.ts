@@ -1,11 +1,11 @@
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { dirname, join } from 'node:path'
-import { dialog, session, type BrowserWindow } from 'electron'
+import { basename, dirname, extname, join } from 'node:path'
+import { app, dialog, session, shell, type BrowserWindow } from 'electron'
 import type { FindRequest } from '../shared/find'
-import type { CanvasFrame, Credentials, EngineId, InputEvent, LiveOptions, ViewEvents, ViewRect, Viewport } from '../shared/types'
+import type { CanvasFrame, Credentials, Download, EngineId, InputEvent, LiveOptions, ViewEvents, ViewRect, Viewport } from '../shared/types'
 import { StreamedView, releaseContexts } from './live'
 import { NativeChrome } from './native-chrome'
 import { NativeSafari, webkitAddon } from './native-safari'
@@ -67,6 +67,11 @@ export function streamedEngines(): EngineId[] {
 
 const sameUrl = (a?: string, b?: string) => !!a && !!b && a.replace(/\/$/, '') === b.replace(/\/$/, '')
 const canvasKey = (id: string) => `canvas:${id}`
+interface SavedFile extends Download {
+  path: string
+  /** When it started. */
+  at: number
+}
 const LABEL: Record<EngineId, string> = { chromium: 'Blink (Chrome)', firefox: 'Gecko (Firefox)', webkit: 'WebKit (Safari)' }
 let nextAsk = 1
 
@@ -110,7 +115,15 @@ export class EngineHost {
 
   private newJar(): CookieJar {
     const jar = new CookieJar()
-    void jar.attach('chromium', electronStore(session.fromPartition(`swivel-${this.storageId}`)))
+    const blink = session.fromPartition(`swivel-${this.storageId}`)
+    void jar.attach('chromium', electronStore(blink))
+    // Blink's downloads: saved like the other engines', without Electron's own save dialog.
+    blink.on('will-download', (event, item) => {
+      const path = this.asker.download(item.getFilename(), 'chromium')
+      if (!path) return event.preventDefault()
+      item.setSavePath(path)
+      item.once('done', (_e, state) => this.asker.downloaded(path, state === 'completed'))
+    })
     // WebKit on macOS has its own store; Playwright's engines join when their first frame opens.
     const native = webkitAddon as unknown as Partial<NativeCookies> | null
     if (native?.cookies && native.watchCookies) void jar.attach('webkit', nativeWebKitStore(native as NativeCookies, this.storageId))
@@ -173,7 +186,54 @@ export class EngineHost {
         cancelId: 0
       })
       return kind === 'alert' || r.response === 1
+    },
+    files: async (multiple, engine) => {
+      if (this.testFiles) return this.testFiles
+      if (this.unattended || this.win.isDestroyed()) return []
+      const message = `Choose ${multiple ? 'files' : 'a file'} for the page in ${LABEL[engine]}`
+      const r = await dialog.showOpenDialog(this.win, { title: message, message, properties: multiple ? ['openFile', 'multiSelections'] : ['openFile'] })
+      return r.canceled ? [] : r.filePaths
+    },
+    download: (name, engine) => {
+      const clean = basename(name.replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_')) || 'download'
+      const twin = [...this.downloads.values()].find((d) => d.name === clean && Date.now() - d.at < 5000 && !d.engines.includes(engine))
+      if (twin) {
+        twin.engines.push(engine)
+        this.reportDownload(twin)
+        return null
+      }
+      // A free name in the Downloads folder: "report.pdf", then "report (1).pdf".
+      const folder = app.getPath('downloads')
+      const taken = (path: string) => existsSync(path) || this.downloads.has(path)
+      let path = join(folder, clean)
+      for (let n = 1; taken(path); n++) path = join(folder, `${basename(clean, extname(clean))} (${n})${extname(clean)}`)
+      const download: SavedFile = { id: nextAsk++, name: clean, path, engines: [engine], state: 'saving', at: Date.now() }
+      this.downloads.set(path, download)
+      this.reportDownload(download)
+      return path
+    },
+    downloaded: (path, ok) => {
+      const download = this.downloads.get(path)
+      if (!download) return
+      download.state = ok ? 'saved' : 'failed'
+      this.reportDownload(download)
     }
+  }
+
+  /** Test hook: the files a page's file input gets, in place of asking. */
+  testFiles?: string[]
+
+  /** Files this window's pages downloaded, by path. */
+  private downloads = new Map<string, SavedFile>()
+
+  private reportDownload({ id, name, engines, state }: SavedFile): void {
+    this.emit('download', { id, name, engines: [...engines], state })
+  }
+
+  /** Show a downloaded file in its folder. */
+  showDownload(id: number): void {
+    const download = [...this.downloads.values()].find((d) => d.id === id)
+    if (download) shell.showItemInFolder(download.path)
   }
 
   /** The UI's answer to an 'auth' question. */

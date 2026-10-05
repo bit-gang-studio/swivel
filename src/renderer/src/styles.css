@@ -306,3 +306,4 @@ button, input, select { font: inherit; color: inherit; }
 }
 .storage tr.detail, .storage tr.detail:hover { background: var(--bg); cursor: default; }
 .storage tr.detail td { padding: 6px 12px 10px; white-space: normal; overflow: visible; }
+.downloadbar .muted { color: var(--muted); }

@@ -69,6 +69,15 @@ export interface LiveEvents extends Omit<ViewEvents, 'frame' | 'cursor' | 'snaps
   command: string
   /** A site wants a username and password (HTTP authentication). Answer with answerAuth(id). */
   auth: { id: number; site: string; retry: boolean }
+  /** A file a page downloaded, sent again as it changes. engines: every engine that started it (one copy is kept). */
+  download: Download
+}
+
+export interface Download {
+  id: number
+  name: string
+  engines: EngineId[]
+  state: 'saving' | 'saved' | 'failed'
 }
 
 export interface Credentials {

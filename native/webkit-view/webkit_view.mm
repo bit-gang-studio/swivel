@@ -8,6 +8,7 @@
 
 #import <AppKit/AppKit.h>
 #import <WebKit/WebKit.h>
+#import <objc/runtime.h>
 #include <napi.h>
 #include "clip.h"
 #include <map>
@@ -36,7 +37,9 @@ static NSString* const kConsoleHook = @"(() => {"
   "addEventListener('unhandledrejection', (e) => post('error', ['Unhandled rejection: ' + (e.reason && e.reason.stack || e.reason)]));"
   "})()";
 
-@interface SwivelWebView : NSObject <WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler>
+static char kDownloadRequest;
+
+@interface SwivelWebView : NSObject <WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, WKDownloadDelegate>
 @property(nonatomic, strong) NSView* container;
 @property(nonatomic, strong) NSView* clip;
 @property(nonatomic, weak) NSView* content;
@@ -46,6 +49,8 @@ static NSString* const kConsoleHook = @"(() => {"
 @property(nonatomic, strong) NSMutableDictionary<NSNumber*, id>* waiting;
 @property(nonatomic, strong) NSMutableDictionary<NSNumber*, NSURLAuthenticationChallenge*>* challenges;
 @property(nonatomic, assign) int nextRequest;
+// Downloads waiting to be told where to save, by request id.
+@property(nonatomic, strong) NSMutableDictionary<NSNumber*, id>* saving;
 @end
 
 @implementation SwivelWebView
@@ -70,6 +75,7 @@ static NSString* const kConsoleHook = @"(() => {"
 - (void)fail:(NSError*)error {
   [self send:"loading" a:"0" b:""];
   if (error.code == NSURLErrorCancelled) return;  // Replaced by a newer navigation.
+  if (error.code == 102 && [error.domain isEqualToString:@"WebKitErrorDomain"]) return;  // It became a download.
   NSString* url = error.userInfo[NSURLErrorFailingURLStringErrorKey] ?: @"";
   NSString* msg = [NSString stringWithFormat:@"%@ (%@)", error.localizedDescription, url];
   [self send:"error" a:msg.UTF8String b:""];
@@ -141,6 +147,49 @@ static NSString* const kConsoleHook = @"(() => {"
   alert.accessoryView = field;
   if (!w.window) return done(nil);
   [alert beginSheetModalForWindow:w.window completionHandler:^(NSModalResponse r) { done(r == NSAlertFirstButtonReturn ? field.stringValue : nil); }];
+}
+// File inputs: without this, choosing a file does nothing.
+- (void)webView:(WKWebView*)w runOpenPanelWithParameters:(WKOpenPanelParameters*)p initiatedByFrame:(WKFrameInfo*)f completionHandler:(void (^)(NSArray<NSURL*>*))done {
+  if (!w.window) return done(nil);
+  NSOpenPanel* panel = [NSOpenPanel openPanel];
+  panel.allowsMultipleSelection = p.allowsMultipleSelection;
+  panel.canChooseDirectories = p.allowsDirectories;
+  panel.message = @"Choose a file for the page in WebKit (Safari).";
+  [panel beginSheetModalForWindow:w.window completionHandler:^(NSModalResponse r) { done(r == NSModalResponseOK ? panel.URLs : nil); }];
+}
+// Downloads: a link marked as one, a response sent as an attachment, or a file the page can't
+// show. Swivel says where each is saved (answerDownload).
+- (void)webView:(WKWebView*)w decidePolicyForNavigationAction:(WKNavigationAction*)action decisionHandler:(void (^)(WKNavigationActionPolicy))decide {
+  decide(action.shouldPerformDownload ? WKNavigationActionPolicyDownload : WKNavigationActionPolicyAllow);
+}
+- (void)webView:(WKWebView*)w decidePolicyForNavigationResponse:(WKNavigationResponse*)response decisionHandler:(void (^)(WKNavigationResponsePolicy))decide {
+  NSString* disposition = [response.response isKindOfClass:[NSHTTPURLResponse class]] ? [(NSHTTPURLResponse*)response.response valueForHTTPHeaderField:@"Content-Disposition"] : nil;
+  BOOL attachment = disposition && [disposition.lowercaseString hasPrefix:@"attachment"];
+  decide(attachment || !response.canShowMIMEType ? WKNavigationResponsePolicyDownload : WKNavigationResponsePolicyAllow);
+}
+- (void)webView:(WKWebView*)w navigationAction:(WKNavigationAction*)a didBecomeDownload:(WKDownload*)download {
+  download.delegate = self;
+}
+- (void)webView:(WKWebView*)w navigationResponse:(WKNavigationResponse*)r didBecomeDownload:(WKDownload*)download {
+  download.delegate = self;
+  [self send:"loading" a:"0" b:""];
+}
+- (void)download:(WKDownload*)download decideDestinationUsingResponse:(NSURLResponse*)r suggestedFilename:(NSString*)name completionHandler:(void (^)(NSURL*))done {
+  if (!self.saving) self.saving = [NSMutableDictionary new];
+  NSNumber* request = @(++self.nextRequest);
+  self.saving[request] = [done copy];
+  objc_setAssociatedObject(download, &kDownloadRequest, request, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+  [self send:"download" a:std::to_string(request.intValue) b:(name ?: @"download").UTF8String];
+}
+- (void)downloadEnded:(WKDownload*)download ok:(BOOL)ok {
+  NSNumber* request = objc_getAssociatedObject(download, &kDownloadRequest);
+  if (request) [self send:"downloaded" a:std::to_string(request.intValue) b:(ok ? "1" : "0")];
+}
+- (void)downloadDidFinish:(WKDownload*)download {
+  [self downloadEnded:download ok:YES];
+}
+- (void)download:(WKDownload*)download didFailWithError:(NSError*)e resumeData:(NSData*)data {
+  [self downloadEnded:download ok:NO];
 }
 // Links that open a new window load in place instead.
 - (WKWebView*)webView:(WKWebView*)w createWebViewWithConfiguration:(WKWebViewConfiguration*)c
@@ -388,6 +437,19 @@ static Napi::Value AnswerChallenge(const Napi::CallbackInfo& info) {
   return info.Env().Undefined();
 }
 
+// answerDownload(id, request, path?): save a download there, or cancel it with no path.
+static Napi::Value AnswerDownload(const Napi::CallbackInfo& info) {
+  SwivelWebView* v = Get(info);
+  if (!v) return info.Env().Undefined();
+  NSNumber* request = @(info[1].As<Napi::Number>().Int32Value());
+  void (^done)(NSURL*) = v.saving[request];
+  if (!done) return info.Env().Undefined();
+  [v.saving removeObjectForKey:request];
+  if (info.Length() > 2 && info[2].IsString()) done([NSURL fileURLWithPath:[NSString stringWithUTF8String:info[2].As<Napi::String>().Utf8Value().c_str()]]);
+  else done(nil);
+  return info.Env().Undefined();
+}
+
 static Napi::Value Load(const Napi::CallbackInfo& info) {
   SwivelWebView* v = Get(info);
   std::string url = info[1].As<Napi::String>();
@@ -465,6 +527,7 @@ static Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("setFrame", Napi::Function::New(env, SetFrame));
   exports.Set("setClip", Napi::Function::New(env, SetClip));
   exports.Set("answerChallenge", Napi::Function::New(env, AnswerChallenge));
+  exports.Set("answerDownload", Napi::Function::New(env, AnswerDownload));
   exports.Set("clickAt", Napi::Function::New(env, ClickAt));
   exports.Set("load", Napi::Function::New(env, Load));
   exports.Set("history", Napi::Function::New(env, History));

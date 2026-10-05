@@ -17,6 +17,15 @@ export interface Asker {
   trust(site: string, problem: string): Promise<boolean>
   /** A page's alert or confirm. Resolves true for OK. */
   dialog(kind: 'alert' | 'confirm' | 'prompt', message: string, engine: EngineId): Promise<boolean>
+  /** Files for a page's file input, picked by the user. Empty: cancelled. */
+  files(multiple: boolean, engine: EngineId): Promise<string[]>
+  /**
+   * A page starts a download: where to save it. Null: don't, another engine in this window is
+   * already saving the same file (a link opened in every frame starts it in each).
+   */
+  download(name: string, engine: EngineId): string | null
+  /** A download to that path ended. */
+  downloaded(path: string, ok: boolean): void
 }
 
 /**

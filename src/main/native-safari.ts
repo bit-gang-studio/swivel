@@ -13,6 +13,8 @@ interface Addon {
   create(parent: Buffer, onEvent: (type: string, a: string, b: string) => void, store: string, userAgent: string): number
   /** Answer an 'auth' or 'trust' event: username and password, any string to trust, or nothing to cancel. */
   answerChallenge(id: number, request: number, username?: string, password?: string): void
+  /** Answer a 'download' event: where to save it, or nothing to cancel it. */
+  answerDownload?(id: number, request: number, path?: string): void
   /** Test hook: a real click at x, y in window points, hit-tested by macOS like a user's. */
   clickAt?(parent: Buffer, x: number, y: number): void
   /** Drop a window's data store (once its views are gone). */
@@ -78,6 +80,16 @@ export class NativeSafari implements PageView {
       else if (type === 'error') this.emit('error', a)
       else if (type === 'result') this.results.get(a)?.(b)
       else if (type === 'auth' || type === 'trust') void this.answer(type, Number(a), b)
+      else if (type === 'download') {
+        // a: the request, b: the file's name.
+        const path = this.ask.download(b, 'webkit')
+        if (path) this.saving.set(a, path)
+        if (this.id !== undefined) this.addon.answerDownload?.(this.id, Number(a), path ?? undefined)
+      } else if (type === 'downloaded') {
+        const path = this.saving.get(a)
+        this.saving.delete(a)
+        if (path) this.ask.downloaded(path, b === '1')
+      }
     }, this.store, this.userAgent)
   }
 
@@ -97,6 +109,8 @@ export class NativeSafari implements PageView {
   }
 
   private triedAuth = new Map<string, Credentials>()
+  /** Downloads in progress: where each is being saved, by request. */
+  private saving = new Map<string, string>()
 
   /** Mobile mode's browser ID, known before the view is made. */
   private userAgent = ''

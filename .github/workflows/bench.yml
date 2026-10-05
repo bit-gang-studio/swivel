@@ -95,3 +95,15 @@ jobs:
         run: node scripts/e2e-isolation.mjs
         env:
           SWIVEL_DEBUG: '1'
+      - name: File uploads and downloads (Linux)
+        timeout-minutes: 5
+        if: ${{ !cancelled() && runner.os == 'Linux' }}
+        run: xvfb-run -a node scripts/e2e-files.mjs
+        env:
+          SWIVEL_DEBUG: '1'
+      - name: File uploads and downloads
+        timeout-minutes: 5
+        if: ${{ !cancelled() && runner.os != 'Linux' }}
+        run: node scripts/e2e-files.mjs
+        env:
+          SWIVEL_DEBUG: '1'

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Canvas, type CanvasHandle } from './Canvas'
 import { FindBar } from './FindBar'
 import { AuthBar } from './AuthBar'
+import { DownloadBar } from './DownloadBar'
 import { StoragePanel } from './StoragePanel'
 import { BottomPanel } from './BottomPanel'
 import { ConsolePanel, type ConsoleItem } from './ConsolePanel'
@@ -254,6 +255,7 @@ export function App() {
       </form>
 
       <AuthBar />
+      <DownloadBar />
       {findOpen && <FindBar focusToken={findFocus} engine="canvas" onClose={() => setFindOpen(false)} />}
 
       <main className={url ? 'viewport with-canvas' : 'viewport'}>

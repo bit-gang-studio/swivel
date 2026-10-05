@@ -117,6 +117,7 @@ ipcMain.handle('swivel:pick', (e, items: { id?: string; label: string; group?: b
     menu.popup({ window: win, x: Math.round(at.x), y: Math.round(at.y), callback: () => setTimeout(() => resolve(picked), 0) })
   })
 })
+ipcMain.on('swivel:show-download', (e, id: number) => sessions.get(e.sender.id)?.showDownload(id))
 ipcMain.on('swivel:auth-answer', (e, id: number, credentials: Credentials | null) => sessions.get(e.sender.id)?.answerAuth(id, credentials))
 ipcMain.handle('swivel:color-scheme', (e, scheme: 'light' | 'dark') => sessions.get(e.sender.id)?.setColorScheme(scheme))
 ipcMain.handle('swivel:clear-data', (e) => sessions.get(e.sender.id)?.clearData())

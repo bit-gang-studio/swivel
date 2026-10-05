@@ -106,7 +106,7 @@ function pickCursor({ x, y }: { x: number; y: number }): string {
 const debug = (...args: unknown[]) => process.env.SWIVEL_DEBUG && console.log('[swivel]', ...args)
 const message = (err: unknown) => (err instanceof Error ? err.message.split('\n')[0] : String(err))
 // Errors from a navigation that a newer one replaced. Not worth showing.
-const superseded = (err: unknown) => /interrupted by another navigation|NS_BINDING_ABORTED|Navigation.*aborted|frame was detached|Target.*closed|has been closed/i.test(message(err))
+const superseded = (err: unknown) => /interrupted by another navigation|Download is starting|NS_BINDING_ABORTED|Navigation.*aborted|frame was detached|Target.*closed|has been closed/i.test(message(err))
 
 const CERTIFICATE_ERROR = /SSL_ERROR|SEC_ERROR|MOZILLA_PKIX_ERROR|ERR_CERT|certificate/i
 
@@ -250,6 +250,22 @@ export class StreamedView implements PageView {
       const kind = d.type()
       if (kind === 'beforeunload') return void d.accept().catch(() => {})
       void this.ask.dialog(kind as 'alert' | 'confirm' | 'prompt', d.message(), this.engine).then((ok) => (ok ? d.accept(kind === 'prompt' ? d.defaultValue() : undefined) : d.dismiss()).catch(() => {}))
+    })
+    // A file input: Playwright's browsers have no picker of their own to show (Firefox would open
+    // one off-screen), so Swivel shows one.
+    page.on('filechooser', (chooser) => {
+      void this.ask
+        .files(chooser.isMultiple(), this.engine)
+        .then((files) => (files.length ? chooser.setFiles(files) : undefined))
+        .catch(() => {})
+    })
+    page.on('download', (download) => {
+      const path = this.ask.download(download.suggestedFilename(), this.engine)
+      if (!path) return void download.cancel().catch(() => {})
+      void download.saveAs(path).then(
+        () => this.ask.downloaded(path, true),
+        () => this.ask.downloaded(path, false)
+      )
     })
     page.on('framenavigated', (frame) => {
       if (frame !== page.mainFrame()) return
