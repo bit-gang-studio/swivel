@@ -254,6 +254,8 @@ export class NativeChrome implements PageView {
   }
 
   private lastScale?: string
+  /** Electron's device emulation is on (rather than the DevTools protocol's, for mobile mode). */
+  private electronEmulation = false
 
   /**
    * The page lays out at exactly the viewport size and is drawn scaled to fit the view, with
@@ -277,12 +279,21 @@ export class NativeChrome implements PageView {
     if (mobile && devtools) {
       // As DevTools' device toolbar does: laid out as on a phone (the page's viewport tag is
       // honoured), at the device's screen density, drawn scaled into the view as it is.
-      wc.disableDeviceEmulation()
-      void wc.debugger
+      // Electron's own emulation would fight it. Turning that off lands after the override and
+      // wipes it, so it's only done when it was ever on, and the override waits a moment.
+      const wait = this.electronEmulation ? 100 : 0
+      if (this.electronEmulation) wc.disableDeviceEmulation()
+      this.electronEmulation = false
+      const override = () =>
+        wc.isDestroyed() ||
+        void wc.debugger
         .sendCommand('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: mobileDensity(mobile.kind), mobile: true, scale, screenWidth: width, screenHeight: height, dontSetVisibleSize: true })
-        .catch((err) => log('blink mobile metrics failed', String(err)))
+          .catch((err) => log('blink mobile metrics failed', String(err)))
+      if (wait) setTimeout(override, wait)
+      else override()
       return
     }
+    this.electronEmulation = true
     wc.enableDeviceEmulation({ screenPosition: mobile ? 'mobile' : 'desktop', screenSize: { width, height }, viewPosition: { x: 0, y: 0 }, deviceScaleFactor: 0, viewSize: { width, height }, scale })
   }
 
