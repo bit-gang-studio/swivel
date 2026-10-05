@@ -167,3 +167,30 @@ button, input, select { font: inherit; color: inherit; }
 /* Mobile mode badge: shown whenever it's on; offered on hover otherwise. */
 .frame header button.mobile { width: auto; padding: 0 7px; font-size: 11px; font-weight: 600; }
 .frame header button.mobile[aria-pressed='true'] { visibility: visible; background: var(--accent); color: #fff; }
+
+/* Storage panel: what the window has stored, a column per engine. */
+.app > .storage { height: 260px; box-sizing: border-box; overflow: auto; border-top: 1px solid var(--line); background: var(--surface); padding: 8px 14px 14px; font-size: 12.5px; }
+.storage header { display: flex; align-items: center; gap: 14px; margin-bottom: 4px; }
+.storage h2 { margin: 0; font: 600 13px system-ui, sans-serif; }
+.storage h3 { margin: 12px 0 4px; font: 600 12px system-ui, sans-serif; display: flex; align-items: baseline; gap: 8px; }
+.storage h3 .count, .storage h3 .note { font-weight: 400; color: var(--muted); }
+.storage header label { display: flex; align-items: center; gap: 6px; }
+.storage header .spacer { flex: 1; }
+.storage header button { height: 26px; padding: 0 12px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); font-size: 12px; cursor: pointer; }
+.storage header button:disabled { color: var(--muted); cursor: default; }
+.storage table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.storage th, .storage td { padding: 4px 8px 4px 0; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-weight: 400; }
+.storage thead th { font: 600 11px system-ui, sans-serif; color: var(--muted); }
+.storage tbody th { font-weight: 600; }
+.storage td.site, .storage td.missing, .storage .empty { color: var(--muted); }
+.storage th:last-child, .storage td:last-child { width: 28px; padding-right: 0; }
+/* Differs between engines: the thing this panel is for. */
+.storage tr.differs th[scope='row'] { box-shadow: inset 3px 0 0 var(--error); padding-left: 8px; }
+.storage tr.differs td.missing { color: var(--error); }
+.storage .value { display: inline-block; max-width: 100%; border: none; background: transparent; padding: 0; font: inherit; color: inherit; cursor: text; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; vertical-align: bottom; }
+.storage .value:hover { background: var(--hover); }
+.storage td input { width: 100%; box-sizing: border-box; border: 1px solid var(--accent); border-radius: 4px; font: inherit; padding: 0 4px; outline: none; background: var(--bg); }
+.storage .copied, .storage .flag { margin-left: 6px; padding: 0 5px; border-radius: 4px; background: var(--bg); color: var(--muted); font: 11px system-ui, sans-serif; }
+.storage .delete { width: 22px; height: 22px; border: none; border-radius: 11px; background: transparent; color: var(--muted); cursor: pointer; font-size: 15px; line-height: 1; }
+.storage .delete:hover { background: var(--hover); color: var(--error); }
+.storage .empty { margin: 2px 0 0; }

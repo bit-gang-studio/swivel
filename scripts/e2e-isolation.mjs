@@ -1,5 +1,6 @@
 // Each window has its own data: a cookie set in one window isn't seen in another, in any engine,
-// and Clear data wipes it. Inside a window, a cookie set in one engine reaches the others.
+// and Clear data wipes it. Inside a window, a cookie set in one engine reaches the others, and
+// the storage panel's data shows it, deletes it, and can stop engines sharing cookies.
 // Run: npm run build && node scripts/e2e-isolation.mjs
 import http from 'node:http'
 import { withApp } from './app-window.mjs'
@@ -10,7 +11,7 @@ const server = http.createServer((req, res) => {
     res.setHeader('set-cookie', 'swivel=kept; Max-Age=3600; Path=/')
     return res.end("<script>console.log('cookie set')</script>")
   }
-  res.end(`<script>console.log('cookie${req.url}:' + document.cookie)</script>`)
+  res.end(`<script>try { localStorage.setItem('seen', 'yes') } catch {} console.log('cookie${req.url}:' + document.cookie)</script>`)
 }).listen(0)
 const base = `http://127.0.0.1:${server.address().port}`
 // Console lines are tagged by engine name. The Browsers set has one frame per engine.
@@ -51,6 +52,38 @@ await withApp(async ({ app, win }) => {
   await app.evaluate(() => globalThis.swivelHost.frameView('chromium').run("document.cookie = 'only=blink; path=/; max-age=3600'"))
   await win.waitForTimeout(2500)
   check('cookie set in Blink reaches every engine', await visit(win, `${base}/shared`, 'only=blink'), true)
+
+  // The storage panel's view of the window: the cookie in every engine, where it came from, and
+  // what the page put in local storage.
+  const IDS = ['chromium', 'firefox', 'webkit']
+  const storage = () => win.evaluate(() => window.swivel.storage())
+  const act = (action) => win.evaluate((a) => window.swivel.storageAction(a), action)
+  const expect = (label, ok, detail) => {
+    console.log(`${label}: ${ok ? 'ok' : 'FAIL ' + JSON.stringify(detail)}`)
+    if (!ok) failed = true
+  }
+  let snap = await storage()
+  const only = snap.cookies.find((c) => c.name === 'only')
+  expect('storage lists the cookie in every engine, set by Blink', !!only && IDS.every((e) => only.values[e] === 'blink') && only.from === 'chromium', only)
+  const seenItem = snap.items.find((i) => i.area === 'local' && i.key === 'seen')
+  expect('storage lists local storage in every engine', !!seenItem && IDS.every((e) => seenItem.values[e] === 'yes'), seenItem ?? snap.items)
+
+  // Deleting a cookie removes it from every engine.
+  await act({ type: 'delete-cookie', key: only.key })
+  check('a deleted cookie is still sent by an engine', await visit(win, `${base}/deleted`, 'only=blink', 6000), false)
+
+  // Sharing off: a cookie set in Blink stays in Blink. Back on: the others get it.
+  await act({ type: 'share', on: false })
+  await app.evaluate(() => globalThis.swivelHost.frameView('chromium').run("document.cookie = 'solo=1; path=/; max-age=3600'"))
+  await win.waitForTimeout(2500)
+  snap = await storage()
+  let solo = snap.cookies.find((c) => c.name === 'solo')
+  expect('sharing off: the cookie stays in Blink', !!solo && solo.values.chromium === '1' && solo.values.firefox === undefined && solo.values.webkit === undefined && snap.sharing === false, solo)
+  await act({ type: 'share', on: true })
+  await win.waitForTimeout(1500)
+  snap = await storage()
+  solo = snap.cookies.find((c) => c.name === 'solo')
+  expect('sharing back on: every engine has it', !!solo && IDS.every((e) => solo.values[e] === '1'), solo)
 
   const before = app.windows().length
   await app.evaluate(({ Menu }) => Menu.getApplicationMenu().items.find((i) => i.label === 'File').submenu.items.find((i) => i.label === 'New Window').click())

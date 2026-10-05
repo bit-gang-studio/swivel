@@ -10,6 +10,7 @@ import { visualCheck } from './visual'
 import { installMenu } from './menu'
 import { windowedFirefoxStatus } from './firefox-window'
 import type { FindRequest } from '../shared/find'
+import type { StorageAction } from '../shared/storage'
 import type { CanvasFrame, Credentials, InputEvent, LiveOptions, ViewRect, Viewport } from '../shared/types'
 
 // Electron's own security warnings would show up in the console of every page viewed in Chrome.
@@ -90,6 +91,8 @@ ipcMain.on('swivel:tip', (e, tip: { text: string; x: number; top: number; bottom
   if (tip) void showTip(win, tip.text, tip)
   else hideTip(win)
 })
+ipcMain.handle('swivel:storage', (e) => sessions.get(e.sender.id)?.storage())
+ipcMain.handle('swivel:storage-action', (e, action: StorageAction) => sessions.get(e.sender.id)?.storageAction(action))
 ipcMain.on('swivel:sync', (e, on: boolean) => {
   const host = sessions.get(e.sender.id)
   if (host) host.syncOn = on

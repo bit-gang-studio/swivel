@@ -13,6 +13,7 @@ import type { BrowserContext } from 'playwright-core'
 import type { Asker, Emit, EmitLive, PageView } from './view'
 import { log } from './log'
 import { mobileUserAgent } from './mobile'
+import { STORAGE_PREFIX, storageEditScript, storageReportScript, type PageStorage, type StorageAction, type StorageSnapshot, type StoredItem } from '../shared/storage'
 import { SYNC_PREFIX, syncApplyScript, syncInstallScript, type SyncMessage } from '../shared/sync'
 import { CookieJar, electronStore, nativeWebKitStore, playwrightStore, type NativeCookies } from './cookies'
 
@@ -267,6 +268,7 @@ export class EngineHost {
     if (event === 'console') {
       const entry = payload as ViewEvents['console']
       if (entry.text.startsWith(SYNC_PREFIX)) return this.sync(key, entry.text.slice(SYNC_PREFIX.length))
+      if (entry.text.startsWith(STORAGE_PREFIX)) return this.storageReported(engine, entry.text.slice(STORAGE_PREFIX.length))
       this.onConsole?.(engine, entry.text)
       return this.emit('console', entry)
     }
@@ -285,6 +287,85 @@ export class EngineHost {
     if (event === 'loading' && payload === false) this.broadcasting = false
     if (event === 'url' && !this.broadcasting) this.follow(key, payload as string)
     this.emit(event as 'url', payload as string)
+  }
+
+  /** Pages' storage reports for the request in progress, by engine. */
+  private storageReports?: { id: number; pages: { engine: EngineId; page: PageStorage }[] }
+
+  private storageReported(engine: EngineId, json: string): void {
+    try {
+      const page = JSON.parse(json) as PageStorage
+      if (this.storageReports?.id === page.id) this.storageReports.pages.push({ engine, page })
+    } catch {
+      // Not a report.
+    }
+  }
+
+  /** A cookie store's engine: mobile mode has its own store per engine ("firefox-phone"). */
+  private static engineOf = (store: string) => store.split('-')[0] as EngineId
+
+  /**
+   * What the window's engines have stored: cookies (from the jar), and local and session storage
+   * and sizes (each frame's page reports its own).
+   */
+  async storage(): Promise<StorageSnapshot> {
+    const id = nextAsk++
+    const reports = (this.storageReports = { id, pages: [] as { engine: EngineId; page: PageStorage }[] })
+    const frames = [...this.views].filter(([key]) => key.startsWith('canvas:'))
+    for (const [, view] of frames) view.run(storageReportScript(id))
+    const [cookies] = await Promise.all([
+      this.jar.snapshot(),
+      // Until every frame has answered, or a short wait (a page can be busy, or have no storage).
+      new Promise<void>((resolve) => {
+        const started = Date.now()
+        const timer = setInterval(() => {
+          if (reports.pages.length < frames.length && Date.now() - started < 700) return
+          clearInterval(timer)
+          resolve()
+        }, 30)
+      })
+    ])
+    const engines = ENGINES.filter((e) => frames.some(([, v]) => v.engine === e))
+    const items = new Map<string, StoredItem>()
+    const usage: StorageSnapshot['usage'] = {}
+    for (const { engine, page } of reports.pages) {
+      // The first frame of an engine speaks for it: its frames share their storage.
+      if (usage[engine]) continue
+      usage[engine] = { bytes: page.bytes, databases: page.databases, caches: page.caches }
+      for (const area of ['local', 'session'] as const) {
+        for (const [key, value] of page[area]) {
+          const itemKey = `${area}\n${page.origin}\n${key}`
+          const item = items.get(itemKey) ?? { origin: page.origin, area, key, values: {} }
+          item.values[engine] = value
+          items.set(itemKey, item)
+        }
+      }
+    }
+    return {
+      engines,
+      sharing: this.jar.sharing,
+      cookies: cookies.map(({ cookie, key, values, from }) => {
+        const byEngine: Partial<Record<EngineId, string>> = {}
+        for (const [store, value] of Object.entries(values)) byEngine[EngineHost.engineOf(store)] ??= value
+        return { key, name: cookie.name, domain: cookie.domain, path: cookie.path, httpOnly: cookie.httpOnly, secure: cookie.secure, expires: cookie.expires, values: byEngine, from: from ? EngineHost.engineOf(from) : undefined }
+      }),
+      items: [...items.values()],
+      usage
+    }
+  }
+
+  /** A change made in the storage panel, applied in every engine. */
+  async storageAction(action: StorageAction): Promise<void> {
+    const everyFrame = (script: string) => {
+      for (const [key, view] of this.views) if (key.startsWith('canvas:')) view.run(script)
+    }
+    if (action.type === 'share') await this.jar.setSharing(action.on)
+    else if (action.type === 'delete-cookie') await this.jar.remove(action.key)
+    else if (action.type === 'set-cookie') await this.jar.setValue(action.key, action.value)
+    else if (action.type === 'clear-cookies') await this.jar.remove()
+    else if (action.type === 'delete-item') everyFrame(storageEditScript({ origin: action.origin, area: action.area, key: action.key }))
+    else if (action.type === 'set-item') everyFrame(storageEditScript({ origin: action.origin, area: action.area, key: action.key, value: action.value }))
+    else if (action.type === 'clear-items') everyFrame(storageEditScript({}))
   }
 
   /** Whether a scroll, click or typing in one frame is repeated in the others. */

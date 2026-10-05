@@ -4,6 +4,7 @@ import { engineLabel } from './engines'
 import { Canvas, type CanvasHandle } from './Canvas'
 import { FindBar } from './FindBar'
 import { AuthBar } from './AuthBar'
+import { StoragePanel } from './StoragePanel'
 import { Icon, ICONS } from './icons'
 
 const mac = window.swivel.platform === 'darwin'
@@ -30,6 +31,8 @@ export function App() {
     }
   })
   const [unseenErrors, setUnseenErrors] = useState(0)
+  /** The storage panel, in the console's place (one or the other shows). */
+  const [storageOpen, setStorageOpen] = useState(false)
   const [findOpen, setFindOpen] = useState(false)
   const [findFocus, setFindFocus] = useState(0)
   const addressInput = useRef<HTMLInputElement>(null)
@@ -115,6 +118,7 @@ export function App() {
   function toggleConsole() {
     const open = !consoleOpen
     setConsoleOpen(open)
+    if (open) setStorageOpen(false)
     if (open) setUnseenErrors(0)
     try {
       localStorage.setItem('swivel.console', open ? 'open' : 'closed')
@@ -219,6 +223,19 @@ export function App() {
           <Icon d={ICONS.console} />
           {unseenErrors > 0 && <span className="badge" aria-label={`${unseenErrors} new errors`}>{unseenErrors > 99 ? '99+' : unseenErrors}</span>}
         </button>
+        <button
+          type="button"
+          className="icon"
+          aria-label="Storage"
+          data-tip="Storage: this window's cookies, local storage and session storage, side by side per engine"
+          aria-pressed={storageOpen}
+          onClick={() => {
+            setStorageOpen(!storageOpen)
+            if (!storageOpen && consoleOpen) toggleConsole()
+          }}
+        >
+          <Icon d={ICONS.storage} />
+        </button>
         <span className="divider" />
         <button
           type="button"
@@ -258,6 +275,7 @@ export function App() {
         )}
       </main>
 
+      {storageOpen && <StoragePanel />}
       {consoleOpen && (
         <section className="console" aria-label="Console">
           <h2>Console</h2>

@@ -36,6 +36,10 @@ const urlOf = (c: Cookie) => `${c.secure ? 'https' : 'http'}://${c.domain.replac
 export class CookieJar {
   private stores = new Map<string, { store: CookieStore; known: Map<string, string>; stop: () => void }>()
   private cookies = new Map<string, Cookie>()
+  /** The store each cookie was first seen in (the others got it by sharing). */
+  private origin = new Map<string, string>()
+  /** Off: each engine keeps its own cookies, to test how each really handles them. */
+  sharing = true
   /** Changes are applied one at a time, in order. */
   private queue: Promise<void> = Promise.resolve()
   private disposed = false
@@ -71,6 +75,8 @@ export class CookieJar {
     const others = [...this.stores].filter(([other]) => other !== name).map(([, e]) => e)
     for (const [key, cookie] of changed) {
       this.cookies.set(key, cookie)
+      if (!this.origin.has(key)) this.origin.set(key, name)
+      if (!this.sharing) continue
       for (const other of others) {
         if (other.known.get(key) === cookie.value) continue
         // Recorded first, so the other store's own change report isn't copied back.
@@ -80,8 +86,12 @@ export class CookieJar {
     }
     for (const key of removed) {
       const cookie = this.cookies.get(key)
+      // Kept while another engine still has it (sharing off, or not copied yet).
+      const elsewhere = others.some((o) => o.known.has(key))
+      if (!this.sharing && elsewhere) continue
       this.cookies.delete(key)
-      if (!cookie) continue
+      this.origin.delete(key)
+      if (!cookie || !this.sharing) continue
       for (const other of others) {
         if (!other.known.has(key)) continue
         other.known.delete(key)
@@ -97,6 +107,65 @@ export class CookieJar {
   settle(): Promise<void> {
     return this.run(async () => {
       for (const name of [...this.stores.keys()]) await this.pull(name)
+    })
+  }
+
+  /** Every cookie in the window: its value in each store that has it, and where it came from. */
+  async snapshot(): Promise<{ cookie: Cookie; key: string; values: Record<string, string>; from?: string }[]> {
+    await this.settle()
+    return [...this.cookies].map(([key, cookie]) => {
+      const values: Record<string, string> = {}
+      for (const [name, entry] of this.stores) {
+        const value = entry.known.get(key)
+        if (value !== undefined) values[name] = value
+      }
+      return { cookie, key, values, from: this.origin.get(key) }
+    })
+  }
+
+  /** Turn sharing on or off. Turning it on copies each cookie to the engines that lack it. */
+  setSharing(on: boolean): Promise<void> {
+    this.sharing = on
+    if (!on) return this.queue
+    return this.run(async () => {
+      for (const [key, cookie] of this.cookies) {
+        for (const entry of this.stores.values()) {
+          if (entry.known.get(key) === cookie.value) continue
+          entry.known.set(key, cookie.value)
+          await entry.store.set(cookie).catch(() => {})
+        }
+      }
+    })
+  }
+
+  /** Set a cookie's value in every engine that has it (all of them, when sharing). */
+  setValue(key: string, value: string): Promise<void> {
+    return this.run(async () => {
+      const cookie = this.cookies.get(key)
+      if (!cookie) return
+      const next = { ...cookie, value }
+      this.cookies.set(key, next)
+      for (const entry of this.stores.values()) {
+        if (!this.sharing && !entry.known.has(key)) continue
+        entry.known.set(key, value)
+        await entry.store.set(next).catch(() => {})
+      }
+    })
+  }
+
+  /** Remove one cookie (or, with no key, every cookie) from every engine. */
+  remove(key?: string): Promise<void> {
+    return this.run(async () => {
+      for (const [k, cookie] of [...this.cookies]) {
+        if (key !== undefined && k !== key) continue
+        this.cookies.delete(k)
+        this.origin.delete(k)
+        for (const entry of this.stores.values()) {
+          if (!entry.known.has(k)) continue
+          entry.known.delete(k)
+          await entry.store.remove(cookie).catch(() => {})
+        }
+      }
     })
   }
 

@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import type { FindRequest } from '../shared/find'
+import type { StorageAction, StorageSnapshot } from '../shared/storage'
 import type { CanvasFrame, Credentials, EngineId, InputEvent, LiveEvents, LiveOptions, ViewRect, Viewport } from '../shared/types'
 
 const api = {
@@ -25,6 +26,10 @@ const api = {
   setFrameVisible: (id: string, visible: boolean): void => ipcRenderer.send('swivel:frame-visible', id, visible),
   /** Show a hover label under a control (x: its centre; top, bottom: its edges), or hide it with null. Drawn above native pages. */
   tip: (tip: { text: string; x: number; top: number; bottom: number } | null): void => ipcRenderer.send('swivel:tip', tip),
+  /** What this window's engines have stored: cookies, local and session storage, and sizes. */
+  storage: (): Promise<StorageSnapshot | undefined> => ipcRenderer.invoke('swivel:storage'),
+  /** A change from the storage panel, applied in every engine. */
+  storageAction: (action: StorageAction): Promise<void> => ipcRenderer.invoke('swivel:storage-action', action),
   /** Whether a scroll, click or typing in one frame is repeated in the others. */
   setSync: (on: boolean): void => ipcRenderer.send('swivel:sync', on),
   /** The frame find-in-page searches. */
