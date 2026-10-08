@@ -4,10 +4,10 @@
   "description": "A desktop dev browser for testing your site across browser engines and screen sizes.",
   "license": "MIT",
   "author": "Bit Gang Studio",
-  "homepage": "https://github.com/bit-gang-studio/swivel",
+  "homepage": "https://github.com/christo-mabbs11/swivel",
   "repository": {
     "type": "git",
-    "url": "https://github.com/bit-gang-studio/swivel.git"
+    "url": "https://github.com/christo-mabbs11/swivel.git"
   },
   "main": "./out/main/index.js",
   "type": "module",

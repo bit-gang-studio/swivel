@@ -2,8 +2,7 @@
 
 Desktop dev browser. Switch browser engines and screen sizes, and compare them. Electron, React and Playwright. MIT. Must run on macOS, Windows and Linux.
 
-- **Plan and status:** the Swivel board in Crunchy. No status or changelog in this repo.
-- **Brief, spec, anti-roadmap:** Crunchy docs.
+- **Abandoned 8 Oct 2026.** The plan, cards, brief, spec and anti-roadmap as they stood: `docs/crunchy/`.
 - **Architecture:** `docs/architecture.md`
 
 ## Commands
